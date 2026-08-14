@@ -1,0 +1,75 @@
+import { createContext, useContext, useEffect, useState, ReactNode } from "react"
+import { User, onAuthStateChanged, signOut } from "firebase/auth"
+import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore"
+import { auth, db } from "../lib/firebase"
+
+interface AuthContextType {
+  user: User | null
+  isAdmin: boolean
+  familyId: string | null
+  loading: boolean
+  logout: () => Promise<void>
+}
+
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  isAdmin: false,
+  familyId: null,
+  loading: true,
+  logout: async () => {},
+})
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [familyId, setFamilyId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setUser(firebaseUser)
+      
+      if (firebaseUser) {
+        try {
+          const adminDoc = await getDoc(doc(db, "admins", firebaseUser.uid))
+          if (adminDoc.exists()) {
+            setIsAdmin(true)
+            setFamilyId(null)
+          } else {
+            setIsAdmin(false)
+            if (firebaseUser.email) {
+              const familiesRef = collection(db, "families")
+              const q = query(familiesRef, where("authorizedEmails", "array-contains", firebaseUser.email))
+              const snapshot = await getDocs(q)
+              if (!snapshot.empty) {
+                setFamilyId(snapshot.docs[0].id)
+              } else {
+                setFamilyId(null)
+              }
+            }
+          }
+        } catch (error) {
+          console.error("Error fetching user roles:", error)
+        }
+      } else {
+        setIsAdmin(false)
+        setFamilyId(null)
+      }
+      setLoading(false)
+    })
+
+    return () => unsubscribe()
+  }, [])
+
+  const logout = async () => {
+    await signOut(auth)
+  }
+
+  return (
+    <AuthContext.Provider value={{ user, isAdmin, familyId, loading, logout }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export const useAuth = () => useContext(AuthContext)
