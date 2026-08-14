@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, Timestamp } from "firebase/firestore"
 import { db } from "../../lib/firebase"
-import { Posting } from "../../types"
+import type { Posting } from "../../types"
 import { useAuth } from "../../contexts/AuthContext"
 import { Button } from "../ui/Button"
 import { Card } from "../ui/Card"

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { collection, onSnapshot, doc, updateDoc, deleteDoc } from "firebase/firestore"
 import { db } from "../../lib/firebase"
-import { Registration, Posting, Family } from "../../types"
+import type { Registration, Posting, Family } from "../../types"
 import { Button } from "../ui/Button"
 import { Card } from "../ui/Card"
 import { downloadCSV } from "../../lib/csv"

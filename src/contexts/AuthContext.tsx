@@ -1,5 +1,7 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react"
-import { User, onAuthStateChanged, signOut } from "firebase/auth"
+import { createContext, useContext, useEffect, useState } from "react"
+import type { ReactNode } from "react"
+import type { User } from "firebase/auth"
+import { onAuthStateChanged, signOut } from "firebase/auth"
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore"
 import { auth, db } from "../lib/firebase"
 

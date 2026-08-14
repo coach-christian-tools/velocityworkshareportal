@@ -1,6 +1,6 @@
 import { Navigate } from "react-router-dom"
 import { useAuth } from "../../contexts/AuthContext"
-import { ReactNode } from "react"
+import type { ReactNode } from "react"
 import { Button } from "../ui/Button"
 
 export function ProtectedRoute({ children, requireAdmin = false }: { children: ReactNode, requireAdmin?: boolean }) {

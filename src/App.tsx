@@ -6,12 +6,14 @@ import { FamiliesAdmin } from './components/admin/Families'
 import { RegistrationsAdmin } from './components/admin/Registrations'
 import { JobBoard } from './components/jobs/JobBoard'
 import { FamilyDashboard } from './components/dashboard/FamilyDashboard'
+import { GuestProxy } from './components/guest/GuestProxy'
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/guest" element={<GuestProxy />} />
         
         <Route path="/" element={<ProtectedRoute><MainLayout><FamilyDashboard /></MainLayout></ProtectedRoute>} />
         <Route path="/jobs" element={<ProtectedRoute><MainLayout><JobBoard /></MainLayout></ProtectedRoute>} />

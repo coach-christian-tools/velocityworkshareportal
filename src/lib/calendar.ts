@@ -1,4 +1,4 @@
-import { Posting } from "../types"
+import type { Posting } from "../types"
 
 export function generateICS(job: Posting) {
   if (!job.startTime || !job.endTime) {
