@@ -8,7 +8,7 @@ import { Resend } from "resend"
 admin.initializeApp()
 const db = getFirestore()
 
-export const sendOtp = onCall(async (request) => {
+export const sendOtp = onCall({ cors: true }, async (request) => {
   const rawEmail = request.data?.email
   if (!rawEmail || typeof rawEmail !== "string") {
     throw new HttpsError("invalid-argument", "A valid email address is required.")
@@ -52,8 +52,8 @@ export const sendOtp = onCall(async (request) => {
   }
   const resend = new Resend(resendApiKey)
 
-  // Use configured custom domain or fallback to Resend testing domain
-  const fromAddress = process.env.RESEND_FROM_EMAIL || "Velocity Workshare <onboarding@resend.dev>"
+  // Send from verified custom domain velocityworkshare.com
+  const fromAddress = process.env.RESEND_FROM_EMAIL || "Velocity Workshare <noreply@velocityworkshare.com>"
 
   try {
     const sendResult = await resend.emails.send({
@@ -92,7 +92,7 @@ export const sendOtp = onCall(async (request) => {
   }
 })
 
-export const verifyOtp = onCall(async (request) => {
+export const verifyOtp = onCall({ cors: true }, async (request) => {
   const rawEmail = request.data?.email
   const rawCode = request.data?.code
 
