@@ -6,7 +6,7 @@ import { useAuth } from "../../contexts/AuthContext"
 import { Button } from "../ui/Button"
 import { Card } from "../ui/Card"
 import { Input } from "../ui/Input"
-import { Plus, Trash2, X, Calendar as CalendarIcon, Link as LinkIcon, UserPlus } from "lucide-react"
+import { Plus, Trash2, X, Calendar as CalendarIcon, Link as LinkIcon, UserPlus, Clock, Users, Mail } from "lucide-react"
 import { generateICS } from "../../lib/calendar"
 
 export function JobBoard() {
@@ -142,10 +142,10 @@ export function JobBoard() {
       })
       setIsDeclareOpen(false)
       setAssigneeName("")
-      alert("Successfully declared for job!")
+      alert("Successfully declared for shift!")
     } catch (err) {
       console.error(err)
-      alert("Failed to declare for job.")
+      alert("Failed to declare for shift.")
     }
   }
 
@@ -160,94 +160,143 @@ export function JobBoard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-3xl font-bold">Job Board</h2>
+      {/* Header & Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-[#13415D] tracking-tight">Workshare Shifts</h2>
+          <p className="text-sm text-slate-500 mt-1">Claim shifts for your family or share guest proxy links.</p>
+        </div>
         {isAdmin && (
-          <Button onClick={() => openAdminModal()}>
+          <Button onClick={() => openAdminModal()} variant="primary" className="self-start sm:self-auto">
             <Plus className="w-4 h-4 mr-2" />
-            Create Job
+            Add New Shift
           </Button>
         )}
       </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        <Button variant={filterType === "All" ? "primary" : "outline"} onClick={() => setFilterType("All")}>All Jobs</Button>
-        <Button variant={filterType === "General" ? "primary" : "outline"} onClick={() => setFilterType("General")}>General</Button>
-        <Button variant={filterType === "Event-Specific" ? "primary" : "outline"} onClick={() => setFilterType("Event-Specific")}>Event-Specific</Button>
+      {/* Filter Tabs */}
+      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+        {(["All", "General", "Event-Specific"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setFilterType(t)}
+            className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all whitespace-nowrap cursor-pointer ${
+              filterType === t
+                ? "bg-[#0A856C] text-white shadow-xs"
+                : "bg-white text-[#13415D] border border-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            {t === "All" ? "All Shifts" : `${t} Pool`}
+          </button>
+        ))}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {/* Grid of Job Postings */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {filteredJobs.map(job => (
-          <Card key={job.id} className="flex flex-col relative overflow-hidden group">
-            <div className={`absolute top-0 left-0 w-1 h-full ${job.type === 'General' ? 'bg-blue-500' : 'bg-orange-500'}`} />
+          <Card key={job.id} className="flex flex-col relative overflow-hidden bg-white border border-slate-200 p-5 hover:border-slate-300 transition-all">
+            <div 
+              className={`absolute top-0 left-0 bottom-0 w-1.5 ${
+                job.type === 'General' ? 'bg-[#0A856C]' : 'bg-[#13415D]'
+              }`} 
+            />
             
-            <div className="flex justify-between items-start mb-2 pl-3">
-              <h3 className="font-bold text-lg">{job.title}</h3>
-              <span className={`text-xs px-2 py-1 rounded-full font-medium whitespace-nowrap ml-2 ${job.type === 'General' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`}>
-                {job.type}
-              </span>
-            </div>
-            
-            <div className="text-sm space-y-1 mb-4 flex-1 pl-3">
-              <p><strong>Date:</strong> {job.date.toDate().toLocaleDateString()}</p>
-              {(job.startTime || job.endTime) && (
-                <p><strong>Time:</strong> {job.startTime?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {job.endTime?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
-              )}
-              {job.pointOfContact && <p><strong>Contact:</strong> {job.pointOfContact}</p>}
-              {job.description && <p className="text-gray-600 dark:text-gray-400 mt-2 line-clamp-2">{job.description}</p>}
-            </div>
+            <div className="pl-2 flex-1 flex flex-col">
+              <div className="flex justify-between items-start gap-2 mb-2">
+                <h3 className="font-bold text-base text-[#13415D] leading-tight">{job.title}</h3>
+                <span className={`text-[11px] font-bold px-2 py-0.5 rounded-md whitespace-nowrap ${
+                  job.type === 'General' 
+                    ? 'bg-[#0A856C]/10 text-[#0A856C]' 
+                    : 'bg-[#13415D]/10 text-[#13415D]'
+                }`}>
+                  {job.type}
+                </span>
+              </div>
+              
+              <div className="text-xs text-slate-600 space-y-1.5 mb-4 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <CalendarIcon className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                  <span>{job.date.toDate().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                </div>
+                {(job.startTime || job.endTime) && (
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                    <span>
+                      {job.startTime?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {job.endTime?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    </span>
+                  </div>
+                )}
+                {job.positions && (
+                  <div className="flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                    <span>Desired: {job.positions.desired} (Min {job.positions.min} / Max {job.positions.max})</span>
+                  </div>
+                )}
+                {job.pointOfContact && (
+                  <div className="flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                    <span>{job.pointOfContact}</span>
+                  </div>
+                )}
+                {job.description && (
+                  <p className="text-slate-500 pt-1 line-clamp-2 leading-relaxed">{job.description}</p>
+                )}
+              </div>
 
-            <div className="flex flex-col gap-2 mt-auto pl-3">
-              {!isAdmin && (
-                <div className="flex gap-2">
-                  <Button size="sm" className="flex-1" onClick={() => { setSelectedJob(job); setIsDeclareOpen(true); }}>
-                    <UserPlus className="w-4 h-4 mr-2" /> Declare
-                  </Button>
-                  <Button size="sm" variant="outline" className="flex-1" onClick={() => generateGuestLink(job.id)} title="Copy Guest Proxy Link">
-                    <LinkIcon className="w-4 h-4 mr-2" /> Guest Link
-                  </Button>
-                </div>
-              )}
-              
-              <Button size="sm" variant="outline" className="w-full" onClick={() => generateICS(job)}>
-                <CalendarIcon className="w-4 h-4 mr-2" /> Add to Calendar
-              </Button>
-              
-              {isAdmin && (
-                <div className="flex gap-2 mt-2">
-                  <Button size="sm" variant="outline" className="flex-1" onClick={() => openAdminModal(job)}>Edit</Button>
-                  <Button size="sm" variant="danger" onClick={() => deleteJob(job.id)}><Trash2 className="w-4 h-4" /></Button>
-                </div>
-              )}
+              <div className="flex flex-col gap-2 pt-3 border-t border-slate-100 mt-auto">
+                {!isAdmin && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button size="sm" variant="primary" onClick={() => { setSelectedJob(job); setIsDeclareOpen(true); }}>
+                      <UserPlus className="w-3.5 h-3.5 mr-1.5" /> Declare
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => generateGuestLink(job.id)} title="Copy Guest Proxy Link">
+                      <LinkIcon className="w-3.5 h-3.5 mr-1.5" /> Guest Link
+                    </Button>
+                  </div>
+                )}
+                
+                <Button size="sm" variant="outline" className="w-full text-slate-600" onClick={() => generateICS(job)}>
+                  <CalendarIcon className="w-3.5 h-3.5 mr-1.5 text-slate-400" /> Add to Calendar
+                </Button>
+                
+                {isAdmin && (
+                  <div className="flex gap-2 pt-1">
+                    <Button size="sm" variant="outline" className="flex-1" onClick={() => openAdminModal(job)}>Edit</Button>
+                    <Button size="sm" variant="danger" onClick={() => deleteJob(job.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                  </div>
+                )}
+              </div>
             </div>
           </Card>
         ))}
         {filteredJobs.length === 0 && (
-          <div className="col-span-full text-center py-12 text-gray-500">
-            No jobs found.
+          <div className="col-span-full py-12 px-4 text-center bg-white rounded-2xl border border-dashed border-slate-300">
+            <p className="text-sm font-semibold text-slate-500">No shifts found for this filter.</p>
           </div>
         )}
       </div>
 
       {/* Family Declare Modal */}
       {isDeclareOpen && selectedJob && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <Card className="w-full max-w-sm bg-[var(--background)] shadow-2xl relative z-10 border border-[var(--glass-border)]">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold">Declare Shift</h3>
-              <button onClick={() => setIsDeclareOpen(false)} className="p-1 hover:bg-black/10 rounded-full transition-colors"><X className="w-5 h-5"/></button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <Card className="w-full max-w-sm bg-white shadow-xl relative z-10 border border-slate-200 p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-[#13415D]">Declare for Shift</h3>
+              <button onClick={() => setIsDeclareOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 rounded-full transition-colors"><X className="w-5 h-5"/></button>
             </div>
             <form onSubmit={handleDeclare} className="space-y-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                You are claiming: <strong>{selectedJob.title}</strong>
-              </p>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <p className="text-xs text-slate-500">Selected shift:</p>
+                <p className="text-sm font-bold text-[#13415D]">{selectedJob.title}</p>
+                <p className="text-xs text-slate-600 mt-1">{selectedJob.date.toDate().toLocaleDateString()}</p>
+              </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Family Member Name</label>
+                <label className="block text-xs font-semibold text-[#13415D] mb-1">Assignee Full Name</label>
                 <Input required value={assigneeName} onChange={e => setAssigneeName(e.target.value)} placeholder="e.g. John Doe" />
               </div>
-              <div className="pt-4 flex justify-end gap-3">
+              <div className="pt-2 flex justify-end gap-2">
                 <Button variant="outline" type="button" onClick={() => setIsDeclareOpen(false)}>Cancel</Button>
-                <Button type="submit">Confirm Declaration</Button>
+                <Button type="submit" variant="primary">Confirm</Button>
               </div>
             </form>
           </Card>
@@ -256,21 +305,21 @@ export function JobBoard() {
 
       {/* Admin Modal */}
       {isAdmin && isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
-          <Card className="w-full max-w-lg bg-[var(--background)] shadow-2xl relative z-10 border border-[var(--glass-border)] my-8">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold">{editingJob ? "Edit Job" : "Create Job"}</h3>
-              <button type="button" onClick={() => setIsModalOpen(false)} className="p-1 hover:bg-black/10 rounded-full transition-colors"><X className="w-5 h-5"/></button>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <Card className="w-full max-w-lg bg-white shadow-xl relative z-10 border border-slate-200 my-8 p-6">
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-xl font-bold text-[#13415D]">{editingJob ? "Edit Shift" : "Create New Shift"}</h3>
+              <button type="button" onClick={() => setIsModalOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 rounded-full transition-colors"><X className="w-5 h-5"/></button>
             </div>
             <form onSubmit={saveJob} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Title</label>
-                <Input required value={title} onChange={e => setTitle(e.target.value)} />
+                <label className="block text-xs font-semibold text-[#13415D] mb-1">Shift Title</label>
+                <Input required value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Snack Bar Setup" />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Type</label>
+                <label className="block text-xs font-semibold text-[#13415D] mb-1">Shift Category</label>
                 <select 
-                  className="flex h-10 w-full rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                  className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#13415D] focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20"
                   value={type}
                   onChange={e => setType(e.target.value as any)}
                 >
@@ -279,48 +328,49 @@ export function JobBoard() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Date</label>
+                <label className="block text-xs font-semibold text-[#13415D] mb-1">Date</label>
                 <Input type="date" required value={date} onChange={e => setDate(e.target.value)} />
               </div>
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <label className="block text-sm font-medium mb-1">Start Time</label>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#13415D] mb-1">Start Time</label>
                   <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
                 </div>
-                <div className="flex-1">
-                  <label className="block text-sm font-medium mb-1">End Time</label>
+                <div>
+                  <label className="block text-xs font-semibold text-[#13415D] mb-1">End Time</label>
                   <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
                 </div>
               </div>
-              <div className="flex gap-4">
-                <div className="flex-1">
-                  <label className="block text-sm font-medium mb-1">Min Positions</label>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#13415D] mb-1">Min Spots</label>
                   <Input type="number" min={1} required value={minPos} onChange={e => setMinPos(Number(e.target.value))} />
                 </div>
-                <div className="flex-1">
-                  <label className="block text-sm font-medium mb-1">Desired</label>
+                <div>
+                  <label className="block text-xs font-semibold text-[#13415D] mb-1">Desired</label>
                   <Input type="number" min={1} required value={desiredPos} onChange={e => setDesiredPos(Number(e.target.value))} />
                 </div>
-                <div className="flex-1">
-                  <label className="block text-sm font-medium mb-1">Max Positions</label>
+                <div>
+                  <label className="block text-xs font-semibold text-[#13415D] mb-1">Max Spots</label>
                   <Input type="number" min={1} required value={maxPos} onChange={e => setMaxPos(Number(e.target.value))} />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Description</label>
+                <label className="block text-xs font-semibold text-[#13415D] mb-1">Description</label>
                 <textarea 
-                  className="flex min-h-[80px] w-full rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                  className="flex min-h-[70px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#13415D] focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20"
                   value={description}
                   onChange={e => setDescription(e.target.value)} 
+                  placeholder="Details about responsibilities and location..."
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Point of Contact</label>
-                <Input value={poc} onChange={e => setPoc(e.target.value)} />
+                <label className="block text-xs font-semibold text-[#13415D] mb-1">Point of Contact / Lead</label>
+                <Input value={poc} onChange={e => setPoc(e.target.value)} placeholder="e.g. coach@example.com" />
               </div>
-              <div className="pt-4 flex justify-end gap-3">
+              <div className="pt-3 flex justify-end gap-2">
                 <Button variant="outline" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-                <Button type="submit">Save Job</Button>
+                <Button type="submit" variant="primary">Save Shift</Button>
               </div>
             </form>
           </Card>
@@ -329,3 +379,4 @@ export function JobBoard() {
     </div>
   )
 }
+

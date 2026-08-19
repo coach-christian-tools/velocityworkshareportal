@@ -10,7 +10,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       <input
         ref={ref}
         className={cn(
-          "flex h-10 w-full rounded-md border border-[var(--glass-border)] bg-[var(--glass-bg)] px-3 py-2 text-sm backdrop-blur-md file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-50",
+          "flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm text-[#13415D] placeholder:text-slate-400 focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20 transition-all disabled:cursor-not-allowed disabled:bg-slate-100 disabled:opacity-60",
           className
         )}
         {...props}
@@ -19,3 +19,4 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
   }
 )
 Input.displayName = "Input"
+

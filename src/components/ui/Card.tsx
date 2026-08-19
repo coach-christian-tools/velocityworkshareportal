@@ -9,12 +9,13 @@ type CardProps = HTMLAttributes<HTMLDivElement> & HTMLMotionProps<"div">
 export const Card = forwardRef<HTMLDivElement, CardProps>(
   ({ className, ...props }, ref) => (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       ref={ref}
-      className={cn("rounded-xl glass p-6", className)}
+      className={cn("rounded-2xl bg-white border border-slate-200/90 shadow-xs p-5 md:p-6 text-[#13415D]", className)}
       {...props}
     />
   )
 )
 Card.displayName = "Card"
+

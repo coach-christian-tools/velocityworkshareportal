@@ -33,18 +33,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (firebaseUser) {
         try {
-          const adminDoc = await getDoc(doc(db, "admins", firebaseUser.uid))
-          if (adminDoc.exists()) {
+          const userEmail = firebaseUser.email?.toLowerCase().trim() || ""
+          const isVelocityAdmin = userEmail.endsWith("@velocity-swimming.com")
+
+          if (isVelocityAdmin) {
             setIsAdmin(true)
             setFamilyId(null)
           } else {
-            setIsAdmin(false)
-            if (firebaseUser.email) {
-              const familiesRef = collection(db, "families")
-              const q = query(familiesRef, where("authorizedEmails", "array-contains", firebaseUser.email))
-              const snapshot = await getDocs(q)
-              if (!snapshot.empty) {
-                setFamilyId(snapshot.docs[0].id)
+            let explicitAdmin = false
+            try {
+              const adminDoc = await getDoc(doc(db, "admins", firebaseUser.uid))
+              if (adminDoc.exists()) {
+                explicitAdmin = true
+              }
+            } catch {
+              // Ignore if admins collection lookup fails
+            }
+
+            if (explicitAdmin) {
+              setIsAdmin(true)
+              setFamilyId(null)
+            } else {
+              setIsAdmin(false)
+              if (firebaseUser.email) {
+                const familiesRef = collection(db, "families")
+                const q = query(familiesRef, where("authorizedEmails", "array-contains", firebaseUser.email))
+                const snapshot = await getDocs(q)
+                if (!snapshot.empty) {
+                  setFamilyId(snapshot.docs[0].id)
+                } else {
+                  const qLower = query(familiesRef, where("authorizedEmails", "array-contains", userEmail))
+                  const snapshotLower = await getDocs(qLower)
+                  if (!snapshotLower.empty) {
+                    setFamilyId(snapshotLower.docs[0].id)
+                  } else {
+                    setFamilyId(null)
+                  }
+                }
               } else {
                 setFamilyId(null)
               }
@@ -52,6 +77,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         } catch (error) {
           console.error("Error fetching user roles:", error)
+          setIsAdmin(false)
+          setFamilyId(null)
         }
       } else {
         setIsAdmin(false)

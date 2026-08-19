@@ -1,14 +1,35 @@
 import { Timestamp } from "firebase/firestore"
 
+export type ChildGroup = 
+  | "No Assignment"
+  | "Splash"
+  | "Pre-Team"
+  | "Prep"
+  | "Age Groupers"
+  | "Juniors"
+  | "Seniors"
+  | "Masters"
+  | "Rec Team"
+  | "Coaches"
+  | "Board Members"
+
+export interface Child {
+  id?: string
+  name: string
+  group: ChildGroup
+}
+
 export interface Family {
   id: string
+  accountName?: string
   authorizedEmails: string[]
   category: "Recreation" | "Development" | "Competitive" | "Masters"
   requirements: {
     generalPoolHours: number
     eventSpecificHours: number
   }
-  members: {
+  children?: Child[]
+  members?: {
     fullName: string
     category: "Recreation" | "Development" | "Competitive" | "Masters"
   }[]

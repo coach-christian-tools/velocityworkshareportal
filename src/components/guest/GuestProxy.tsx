@@ -6,6 +6,8 @@ import type { Posting, Family } from "../../types"
 import { Card } from "../ui/Card"
 import { Input } from "../ui/Input"
 import { Button } from "../ui/Button"
+import { VSLogo } from "../ui/VSLogo"
+import { Calendar, Clock, CheckCircle2, AlertTriangle, UserCheck } from "lucide-react"
 
 export function GuestProxy() {
   const [searchParams] = useSearchParams()
@@ -64,15 +66,22 @@ export function GuestProxy() {
   }
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center">Loading...</div>
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="text-slate-500 font-medium animate-pulse">Loading shift details...</div>
+      </div>
+    )
   }
 
   if (!job || !family) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <Card className="w-full max-w-md text-center border-red-200">
-          <h2 className="text-xl font-bold text-red-500 mb-2">Invalid Link</h2>
-          <p>This guest proxy link is invalid or has expired.</p>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md text-center bg-white border border-red-200 p-8">
+          <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto mb-3">
+            <AlertTriangle className="w-6 h-6" />
+          </div>
+          <h2 className="text-xl font-bold text-[#13415D] mb-2">Invalid or Expired Link</h2>
+          <p className="text-sm text-slate-500">This guest proxy sign-up link is not recognized or the shift is no longer available.</p>
         </Card>
       </div>
     )
@@ -80,56 +89,83 @@ export function GuestProxy() {
 
   if (submitted) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-[var(--background)]">
-        <Card className="w-full max-w-md text-center border-green-200">
-          <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl">✓</div>
-          <h2 className="text-2xl font-bold text-green-600 mb-2">Thank You!</h2>
-          <p>You have successfully registered for <strong>{job.title}</strong>.</p>
-          <p className="mt-2 text-sm text-gray-500">The {family.authorizedEmails[0]?.split('@')[0]} family has been credited.</p>
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md text-center bg-white border border-[#0A856C]/30 p-8 shadow-sm">
+          <div className="w-16 h-16 bg-[#0A856C]/10 text-[#0A856C] rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle2 className="w-8 h-8" />
+          </div>
+          <h2 className="text-2xl font-extrabold text-[#13415D] mb-2">Thank You!</h2>
+          <p className="text-sm text-slate-600">
+            You have successfully registered to cover <strong>{job.title}</strong> as a guest volunteer.
+          </p>
+          <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-500">
+            Credit has been linked to the <strong>{family.authorizedEmails[0]?.split('@')[0]}</strong> family.
+          </div>
         </Card>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-[var(--background)]">
-      <Card className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-primary-600 mb-2">Velocity Swimming</h1>
-          <h2 className="text-xl font-semibold">Guest Proxy Sign-Up</h2>
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 sm:p-6">
+      <div className="w-full max-w-md flex flex-col items-center">
+        {/* Brand Header */}
+        <div className="mb-6 text-center">
+          <VSLogo size="lg" className="mb-2" />
+          <p className="text-sm text-slate-500 font-medium">Guest Proxy Volunteer Registration</p>
         </div>
 
-        <div className="bg-primary-50 dark:bg-primary-900/20 p-4 rounded-lg mb-6 border border-primary-100 dark:border-primary-800">
-          <p className="text-sm font-medium text-primary-800 dark:text-primary-300 mb-1">You are signing up on behalf of:</p>
-          <p className="font-bold">{family.authorizedEmails.join(", ")}</p>
-          <hr className="my-3 border-primary-200 dark:border-primary-800" />
-          <p className="font-semibold">{job.title}</p>
-          <p className="text-sm">{job.date.toDate().toLocaleDateString()}</p>
-          {(job.startTime || job.endTime) && (
-            <p className="text-sm">{job.startTime?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {job.endTime?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
-          )}
-        </div>
+        <Card className="w-full bg-white shadow-sm border border-slate-200 p-6 sm:p-8">
+          {/* Shift Details Box */}
+          <div className="bg-[#13415D]/5 border border-[#13415D]/15 p-4 rounded-xl mb-6">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-[#0A856C] uppercase tracking-wider mb-1">
+              <UserCheck className="w-3.5 h-3.5" /> Volunteering On Behalf Of
+            </div>
+            <p className="font-extrabold text-[#13415D] text-sm truncate">{family.authorizedEmails.join(", ")}</p>
+            
+            <div className="my-3 border-t border-slate-200/80" />
+            
+            <p className="font-bold text-base text-[#13415D]">{job.title}</p>
+            <div className="mt-1 space-y-1 text-xs text-slate-600">
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                <span>{job.date.toDate().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+              </div>
+              {(job.startTime || job.endTime) && (
+                <div className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-slate-400" />
+                  <span>
+                    {job.startTime?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {job.endTime?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="flex gap-4">
-            <div className="flex-1">
-              <label className="block text-sm font-medium mb-1">First Name</label>
-              <Input required value={firstName} onChange={e => setFirstName(e.target.value)} />
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-[#13415D] mb-1">First Name</label>
+                <Input required value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Jane" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#13415D] mb-1">Last Name</label>
+                <Input required value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Doe" />
+              </div>
             </div>
-            <div className="flex-1">
-              <label className="block text-sm font-medium mb-1">Last Name</label>
-              <Input required value={lastName} onChange={e => setLastName(e.target.value)} />
+            <div>
+              <label className="block text-xs font-semibold text-[#13415D] mb-1">Relation to Family</label>
+              <Input required value={relation} onChange={e => setRelation(e.target.value)} placeholder="e.g. Grandparent, Family Friend, Relative" />
             </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Relation to Family</label>
-            <Input required value={relation} onChange={e => setRelation(e.target.value)} placeholder="e.g. Grandparent, Friend" />
-          </div>
-          <div className="pt-4">
-            <Button type="submit" className="w-full h-12 text-lg">Sign Up</Button>
-          </div>
-        </form>
-      </Card>
+            <div className="pt-2">
+              <Button type="submit" variant="primary" size="lg" className="w-full">
+                Confirm Guest Registration
+              </Button>
+            </div>
+          </form>
+        </Card>
+      </div>
     </div>
   )
 }
+

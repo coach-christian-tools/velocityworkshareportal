@@ -2,11 +2,18 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isAdmin() {
-      // We will check if the user's UID is in an 'admins' collection
-      return request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return request.auth != null && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email != null && request.auth.token.email.matches('(?i).*@velocity-swimming\\.com$'))
+      );
     }
 
     match /admins/{uid} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    match /_otp_codes/{docId} {
       allow read, write: if false;
     }
 
