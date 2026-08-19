@@ -14,8 +14,6 @@ dist-ssr
 functions/lib
 functions/node_modules
 
-src/lib/firebase.ts
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
