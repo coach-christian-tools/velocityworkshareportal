@@ -1,12 +1,16 @@
 import { useEffect, useState, useMemo } from "react"
+import { useNavigate } from "react-router-dom"
 import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc } from "firebase/firestore"
 import { db } from "../../lib/firebase"
-import type { Family, Child, ChildGroup } from "../../types"
+import type { Family, Child, ChildGroup, Registration, Posting, ManualHour } from "../../types"
 import { Button } from "../ui/Button"
 import { Card } from "../ui/Card"
 import { Input } from "../ui/Input"
 import { downloadCSV } from "../../lib/csv"
-import { Download, Plus, Edit2, Trash2, X, Search } from "lucide-react"
+import { Download, Plus, Trash2, X, Search, ArrowUpDown, ArrowUp, ArrowDown, ChevronDown } from "lucide-react"
+
+type SortField = "account" | "general" | "event"
+type SortOrder = "asc" | "desc"
 
 const CHILD_GROUPS: ChildGroup[] = [
   "No Assignment",
@@ -22,21 +26,52 @@ const CHILD_GROUPS: ChildGroup[] = [
   "Board Members"
 ]
 
-const DIVISION_LABELS: Record<string, string> = {
-  Recreation: "REC",
-  Competitive: "COMP",
-  Development: "DEV",
-  Masters: "MTR"
+const DIVISION_STYLES: Record<string, string> = {
+  Competitive: "bg-blue-50 text-blue-700 border-blue-200/60",
+  Masters: "bg-purple-50 text-purple-700 border-purple-200/60",
+  Development: "bg-emerald-50 text-emerald-700 border-emerald-200/60",
+  Recreation: "bg-slate-100 text-slate-700 border-slate-200/60"
+}
+
+function formatAccountName(name?: string): string {
+  if (!name) return ""
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return ""
+  if (parts.length === 1) return parts[0]
+  const firstName = parts[0]
+  const lastPart = parts[parts.length - 1]
+  const lastInitial = lastPart[0] ? `${lastPart[0].toUpperCase()}.` : ""
+  return `${firstName} ${lastInitial}`.trim()
+}
+
+function formatHours(num: number): string {
+  const rounded = Math.round(num * 10) / 10
+  return Number.isInteger(rounded) ? rounded.toString() : rounded.toFixed(1)
 }
 
 export function FamiliesAdmin() {
+  const navigate = useNavigate()
   const [families, setFamilies] = useState<Family[]>([])
+  const [registrations, setRegistrations] = useState<Registration[]>([])
+  const [postings, setPostings] = useState<Record<string, Posting>>({})
+  const [manualHours, setManualHours] = useState<ManualHour[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingFamily, setEditingFamily] = useState<Family | null>(null)
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState("")
   const [divisionFilter, setDivisionFilter] = useState<string>("ALL")
+  const [sortField, setSortField] = useState<SortField>("account")
+  const [sortOrder, setSortOrder] = useState<SortOrder>("asc")
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(prev => (prev === "asc" ? "desc" : "asc"))
+    } else {
+      setSortField(field)
+      setSortOrder(field === "account" ? "asc" : "desc")
+    }
+  }
 
   // Form state
   const [accountName, setAccountName] = useState("")
@@ -47,15 +82,72 @@ export function FamiliesAdmin() {
   const [eventHours, setEventHours] = useState("0")
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "families"), (snapshot) => {
+    const unsubFamilies = onSnapshot(collection(db, "families"), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Family))
       setFamilies(data)
     })
-    return () => unsub()
+    const unsubRegs = onSnapshot(collection(db, "registrations"), (snapshot) => {
+      setRegistrations(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Registration)))
+    })
+    const unsubPosts = onSnapshot(collection(db, "postings"), (snapshot) => {
+      const posts: Record<string, Posting> = {}
+      snapshot.forEach(d => { posts[d.id] = { id: d.id, ...d.data() } as Posting })
+      setPostings(posts)
+    })
+    const unsubManual = onSnapshot(collection(db, "manual_hours"), (snapshot) => {
+      setManualHours(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ManualHour)))
+    })
+    return () => {
+      unsubFamilies()
+      unsubRegs()
+      unsubPosts()
+      unsubManual()
+    }
   }, [])
 
+  const familyCompletedHours = useMemo(() => {
+    const map: Record<string, { general: number; event: number }> = {}
+    
+    for (const f of families) {
+      map[f.id] = { general: 0, event: 0 }
+    }
+
+    for (const reg of registrations) {
+      if (reg.status === "Complete" && reg.familyId) {
+        const post = postings[reg.postingId]
+        if (post) {
+          let hours = 1
+          if (post.startTime && post.endTime) {
+            hours = (post.endTime.toMillis() - post.startTime.toMillis()) / (1000 * 60 * 60)
+          }
+          if (!map[reg.familyId]) {
+            map[reg.familyId] = { general: 0, event: 0 }
+          }
+          if (post.type === "General") {
+            map[reg.familyId].general += hours
+          } else {
+            map[reg.familyId].event += hours
+          }
+        }
+      }
+    }
+
+    for (const m of manualHours) {
+      if (!map[m.familyId]) {
+        map[m.familyId] = { general: 0, event: 0 }
+      }
+      if (m.type === "General") {
+        map[m.familyId].general += m.hours
+      } else {
+        map[m.familyId].event += m.hours
+      }
+    }
+
+    return map
+  }, [registrations, postings, manualHours, families])
+
   const filteredFamilies = useMemo(() => {
-    return families.filter(f => {
+    const list = families.filter(f => {
       const matchesDivision = divisionFilter === "ALL" || f.category === divisionFilter
       if (!matchesDivision) return false
 
@@ -66,18 +158,48 @@ export function FamiliesAdmin() {
       const matchChild = f.children?.some(c => c.name.toLowerCase().includes(term) || c.group.toLowerCase().includes(term))
       return matchName || matchEmail || matchChild
     })
-  }, [families, searchTerm, divisionFilter])
+
+    return list.sort((a, b) => {
+      if (sortField === "account") {
+        const nameA = (a.accountName || "").trim().split(/\s+/)[0].toLowerCase()
+        const nameB = (b.accountName || "").trim().split(/\s+/)[0].toLowerCase()
+        const comp = nameA.localeCompare(nameB)
+        return sortOrder === "asc" ? comp : -comp
+      }
+
+      if (sortField === "general") {
+        const hoursA = familyCompletedHours[a.id]?.general ?? 0
+        const hoursB = familyCompletedHours[b.id]?.general ?? 0
+        const comp = hoursA - hoursB
+        return sortOrder === "asc" ? comp : -comp
+      }
+
+      if (sortField === "event") {
+        const hoursA = familyCompletedHours[a.id]?.event ?? 0
+        const hoursB = familyCompletedHours[b.id]?.event ?? 0
+        const comp = hoursA - hoursB
+        return sortOrder === "asc" ? comp : -comp
+      }
+
+      return 0
+    })
+  }, [families, searchTerm, divisionFilter, sortField, sortOrder, familyCompletedHours])
 
   const handleExport = () => {
-    const dataToExport = families.map(f => ({
-      ID: f.id,
-      AccountName: f.accountName || "",
-      Division: f.category,
-      Children: f.children ? f.children.map(c => `${c.name} (${c.group})`).join("; ") : "",
-      Emails: f.authorizedEmails.join("; "),
-      GeneralPoolHoursReq: f.requirements?.generalPoolHours ?? 0,
-      EventSpecificHoursReq: f.requirements?.eventSpecificHours ?? 0
-    }))
+    const dataToExport = families.map(f => {
+      const completed = familyCompletedHours[f.id] || { general: 0, event: 0 }
+      return {
+        ID: f.id,
+        AccountName: f.accountName || "",
+        Division: f.category,
+        Children: f.children ? f.children.map(c => `${c.name} (${c.group})`).join("; ") : "",
+        Emails: f.authorizedEmails.join("; "),
+        GeneralPoolHoursReq: f.requirements?.generalPoolHours ?? 0,
+        GeneralPoolHoursCompleted: completed.general,
+        EventSpecificHoursReq: f.requirements?.eventSpecificHours ?? 0,
+        EventSpecificHoursCompleted: completed.event
+      }
+    })
     downloadCSV(dataToExport, "families_export.csv")
   }
 
@@ -181,9 +303,6 @@ export function FamiliesAdmin() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-2xl sm:text-3xl font-extrabold text-[#13415D] tracking-tight">Family Roster</h2>
-          <p className="text-sm text-slate-500 mt-1">
-            Manage registered swimmer families, children, and hourly requirements ({families.length} families total).
-          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2.5 self-start sm:self-auto">
           <Button variant="outline" size="sm" onClick={handleExport}>
@@ -199,28 +318,31 @@ export function FamiliesAdmin() {
 
       {/* Search & Filter Bar */}
       <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
-        <div className="relative w-full sm:w-80">
+        <div className="relative flex-1 w-full">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <Input
             type="text"
             placeholder="Search by family, child, or email..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="pl-9 h-10 text-sm"
+            className="pl-9 h-10 text-sm w-full"
           />
         </div>
-        <div className="flex items-center gap-3 w-full sm:w-auto">
-          <select
-            value={divisionFilter}
-            onChange={e => setDivisionFilter(e.target.value)}
-            className="flex h-10 w-full sm:w-44 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-[#13415D] focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20"
-          >
-            <option value="ALL">All Divisions ({families.length})</option>
-            <option value="Competitive">Competitive</option>
-            <option value="Development">Development</option>
-            <option value="Recreation">Recreation</option>
-            <option value="Masters">Masters</option>
-          </select>
+        <div className="flex items-center gap-3 w-full sm:w-auto shrink-0">
+          <div className="relative w-full sm:w-44">
+            <select
+              value={divisionFilter}
+              onChange={e => setDivisionFilter(e.target.value)}
+              className="flex h-10 w-full appearance-none rounded-lg border border-slate-300 bg-white pl-3.5 pr-10 py-1.5 text-xs font-medium text-[#13415D] focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20 cursor-pointer"
+            >
+              <option value="ALL">All Divisions ({families.length})</option>
+              <option value="Competitive">Competitive</option>
+              <option value="Development">Development</option>
+              <option value="Recreation">Recreation</option>
+              <option value="Masters">Masters</option>
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          </div>
           <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">
             Showing {filteredFamilies.length} of {families.length}
           </span>
@@ -230,79 +352,142 @@ export function FamiliesAdmin() {
       {/* Families List / Table */}
       <Card className="p-0 md:p-0 overflow-hidden bg-white border border-slate-200 shadow-xs">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[700px]">
+          <table className="w-full text-left border-collapse min-w-[500px]">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/70">
-                <th className="py-3.5 px-4 font-bold text-xs uppercase tracking-wider text-slate-500">Account</th>
-                <th className="py-3.5 px-4 font-bold text-xs uppercase tracking-wider text-slate-500">Division</th>
-                <th className="py-3.5 px-4 font-bold text-xs uppercase tracking-wider text-slate-500">Swimmers</th>
-                <th className="py-3.5 px-4 font-bold text-xs uppercase tracking-wider text-slate-500">Authorized Emails</th>
-                <th className="py-3.5 px-4 font-bold text-xs uppercase tracking-wider text-slate-500">Req. Hours (Gen / Event)</th>
-                <th className="py-3.5 px-4 font-bold text-xs uppercase tracking-wider text-slate-500 text-right">Actions</th>
+                <th
+                  onClick={() => handleSort("account")}
+                  className="py-3.5 px-4 font-bold text-xs uppercase tracking-wider text-slate-500 cursor-pointer select-none hover:text-[#13415D] transition-colors group"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Account</span>
+                    {sortField === "account" ? (
+                      sortOrder === "asc" ? (
+                        <ArrowUp className="w-3.5 h-3.5 text-[#0A856C]" />
+                      ) : (
+                        <ArrowDown className="w-3.5 h-3.5 text-[#0A856C]" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 opacity-40 group-hover:opacity-80 transition-opacity" />
+                    )}
+                  </div>
+                </th>
+                <th className="py-3.5 px-4 font-bold text-xs uppercase tracking-wider text-slate-500">
+                  Swimmers
+                </th>
+                <th
+                  onClick={() => handleSort("general")}
+                  className="py-3.5 px-4 font-bold text-xs uppercase tracking-wider text-slate-500 cursor-pointer select-none hover:text-[#13415D] transition-colors group"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>General Hours</span>
+                    {sortField === "general" ? (
+                      sortOrder === "asc" ? (
+                        <ArrowUp className="w-3.5 h-3.5 text-[#0A856C]" />
+                      ) : (
+                        <ArrowDown className="w-3.5 h-3.5 text-[#0A856C]" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 opacity-40 group-hover:opacity-80 transition-opacity" />
+                    )}
+                  </div>
+                </th>
+                <th
+                  onClick={() => handleSort("event")}
+                  className="py-3.5 px-4 font-bold text-xs uppercase tracking-wider text-slate-500 cursor-pointer select-none hover:text-[#13415D] transition-colors group"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>Event Hours</span>
+                    {sortField === "event" ? (
+                      sortOrder === "asc" ? (
+                        <ArrowUp className="w-3.5 h-3.5 text-[#0A856C]" />
+                      ) : (
+                        <ArrowDown className="w-3.5 h-3.5 text-[#0A856C]" />
+                      )
+                    ) : (
+                      <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 opacity-40 group-hover:opacity-80 transition-opacity" />
+                    )}
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredFamilies.map(f => (
-                <tr key={f.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="py-3.5 px-4">
-                    <span className="font-bold text-sm text-[#13415D]">
-                      {f.accountName || <span className="text-slate-400 font-normal italic">Unnamed Family</span>}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${f.category === 'Competitive' ? 'bg-blue-50 text-blue-700' :
-                      f.category === 'Masters' ? 'bg-purple-50 text-purple-700' :
-                        f.category === 'Development' ? 'bg-emerald-50 text-emerald-700' :
-                          'bg-slate-100 text-slate-700'
-                      }`}>
-                      {DIVISION_LABELS[f.category] || f.category}
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4">
-                    {f.children && f.children.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        {f.children.map((child, idx) => (
-                          <span
-                            key={idx}
-                            className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200"
-                          >
-                            <span className="font-semibold text-[#13415D] mr-1">
-                              {child.name ? child.name.trim().split(/\s+/)[0] : ""}
-                            </span>
-                            <span className="text-slate-500 text-[11px]">({child.group})</span>
-                          </span>
-                        ))}
+              {filteredFamilies.map(f => {
+                const completed = familyCompletedHours[f.id] || { general: 0, event: 0 }
+                const reqGen = f.requirements?.generalPoolHours ?? 0
+                const reqEvent = f.requirements?.eventSpecificHours ?? 0
+
+                return (
+                  <tr
+                    key={f.id}
+                    onClick={() => navigate(`/admin/families/${f.id}`)}
+                    tabIndex={0}
+                    onKeyDown={e => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault()
+                        navigate(`/admin/families/${f.id}`)
+                      }
+                    }}
+                    className="hover:bg-slate-50/80 cursor-pointer transition-colors focus-visible:outline-none focus-visible:bg-slate-50"
+                    title="View family details"
+                  >
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-sm text-[#13415D]">
+                          {formatAccountName(f.accountName) || <span className="text-slate-400 font-normal italic">Unnamed Family</span>}
+                        </span>
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                            DIVISION_STYLES[f.category] || DIVISION_STYLES.Recreation
+                          }`}
+                        >
+                          {f.category}
+                        </span>
                       </div>
-                    ) : (
-                      <span className="text-slate-400 text-xs italic">No children</span>
-                    )}
-                  </td>
-                  <td className="py-3.5 px-4 text-xs font-medium text-slate-700">
-                    {f.authorizedEmails && f.authorizedEmails.length > 0 ? (
-                      f.authorizedEmails.join(", ")
-                    ) : (
-                      <span className="text-slate-400 italic">None</span>
-                    )}
-                  </td>
-                  <td className="py-3.5 px-4 text-xs font-bold text-[#13415D]">
-                    <span className="text-[#0A856C]">{f.requirements?.generalPoolHours ?? 0}h Gen</span> / <span>{f.requirements?.eventSpecificHours ?? 0}h Event</span>
-                  </td>
-                  <td className="py-3.5 px-4 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button
-                        onClick={() => openModal(f)}
-                        className="p-1.5 text-slate-500 hover:text-[#0A856C] hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                        title="Edit Family"
+                    </td>
+                    <td className="py-3.5 px-4">
+                      {f.children && f.children.length > 0 ? (
+                        <div className="flex flex-col items-start gap-1">
+                          {f.children.map((child, idx) => (
+                            <span
+                              key={idx}
+                              className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-700 border border-slate-200"
+                            >
+                              <span className="font-semibold text-[#13415D] mr-1">
+                                {child.name ? child.name.trim().split(/\s+/)[0] : ""}
+                              </span>
+                              <span className="text-slate-500 text-[11px]">({child.group})</span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-slate-400 text-xs italic">No children</span>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span
+                        className={`text-base sm:text-lg font-bold tracking-tight ${
+                          completed.general >= reqGen && reqGen > 0 ? "text-[#0A856C]" : "text-[#13415D]"
+                        }`}
                       >
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        {formatHours(completed.general)} of {formatHours(reqGen)} Complete
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span
+                        className={`text-base sm:text-lg font-bold tracking-tight ${
+                          completed.event >= reqEvent && reqEvent > 0 ? "text-[#0A856C]" : "text-[#13415D]"
+                        }`}
+                      >
+                        {formatHours(completed.event)} of {formatHours(reqEvent)} Complete
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
               {filteredFamilies.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-12 px-4 text-center text-slate-400 text-sm">
+                  <td colSpan={4} className="py-12 px-4 text-center text-slate-400 text-sm">
                     {families.length === 0 ? "No families registered yet. Click \"Add Family\" to create one." : "No families matched your search filter."}
                   </td>
                 </tr>
@@ -340,16 +525,19 @@ export function FamiliesAdmin() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-[#13415D] mb-1">Division</label>
-                  <select
-                    className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#13415D] focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20"
-                    value={category}
-                    onChange={e => setCategory(e.target.value as Family["category"])}
-                  >
-                    <option value="Recreation">Recreation</option>
-                    <option value="Development">Development</option>
-                    <option value="Competitive">Competitive</option>
-                    <option value="Masters">Masters</option>
-                  </select>
+                  <div className="relative">
+                    <select
+                      className="flex h-11 w-full appearance-none rounded-lg border border-slate-300 bg-white pl-3.5 pr-10 py-2 text-sm text-[#13415D] focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20 cursor-pointer"
+                      value={category}
+                      onChange={e => setCategory(e.target.value as Family["category"])}
+                    >
+                      <option value="Recreation">Recreation</option>
+                      <option value="Development">Development</option>
+                      <option value="Competitive">Competitive</option>
+                      <option value="Masters">Masters</option>
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  </div>
                 </div>
               </div>
 
@@ -396,16 +584,17 @@ export function FamiliesAdmin() {
                             required
                           />
                         </div>
-                        <div className="w-40 sm:w-44">
+                        <div className="relative w-40 sm:w-44">
                           <select
                             value={child.group}
                             onChange={e => handleChildChange(index, "group", e.target.value as ChildGroup)}
-                            className="flex h-9 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-[#13415D] focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20"
+                            className="flex h-9 w-full appearance-none rounded-lg border border-slate-300 bg-white pl-3 pr-9 py-1 text-xs text-[#13415D] focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20 cursor-pointer"
                           >
                             {CHILD_GROUPS.map(grp => (
                               <option key={grp} value={grp}>{grp}</option>
                             ))}
                           </select>
+                          <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
                         </div>
                         <button
                           type="button"

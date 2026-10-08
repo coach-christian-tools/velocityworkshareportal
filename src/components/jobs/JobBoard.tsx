@@ -6,11 +6,12 @@ import { useAuth } from "../../contexts/AuthContext"
 import { Button } from "../ui/Button"
 import { Card } from "../ui/Card"
 import { Input } from "../ui/Input"
-import { Plus, Trash2, X, Calendar as CalendarIcon, Link as LinkIcon, UserPlus, Clock, Users, Mail } from "lucide-react"
+import { Plus, Trash2, X, Calendar as CalendarIcon, Link as LinkIcon, UserPlus, Clock, Users, Mail, ChevronDown } from "lucide-react"
 import { generateICS } from "../../lib/calendar"
 
 export function JobBoard() {
-  const { isAdmin, familyId } = useAuth()
+  const { isAdmin, familyId, clientMode } = useAuth()
+  const effectiveIsAdmin = isAdmin && !clientMode
   const [jobs, setJobs] = useState<Posting[]>([])
   const [filterType, setFilterType] = useState<"All" | "General" | "Event-Specific">("All")
   
@@ -166,7 +167,7 @@ export function JobBoard() {
           <h2 className="text-2xl sm:text-3xl font-extrabold text-[#13415D] tracking-tight">Workshare Shifts</h2>
           <p className="text-sm text-slate-500 mt-1">Claim shifts for your family or share guest proxy links.</p>
         </div>
-        {isAdmin && (
+        {effectiveIsAdmin && (
           <Button onClick={() => openAdminModal()} variant="primary" className="self-start sm:self-auto">
             <Plus className="w-4 h-4 mr-2" />
             Add New Shift
@@ -244,7 +245,7 @@ export function JobBoard() {
               </div>
 
               <div className="flex flex-col gap-2 pt-3 border-t border-slate-100 mt-auto">
-                {!isAdmin && (
+                {!effectiveIsAdmin && (
                   <div className="grid grid-cols-2 gap-2">
                     <Button size="sm" variant="primary" onClick={() => { setSelectedJob(job); setIsDeclareOpen(true); }}>
                       <UserPlus className="w-3.5 h-3.5 mr-1.5" /> Declare
@@ -259,7 +260,7 @@ export function JobBoard() {
                   <CalendarIcon className="w-3.5 h-3.5 mr-1.5 text-slate-400" /> Add to Calendar
                 </Button>
                 
-                {isAdmin && (
+                {effectiveIsAdmin && (
                   <div className="flex gap-2 pt-1">
                     <Button size="sm" variant="outline" className="flex-1" onClick={() => openAdminModal(job)}>Edit</Button>
                     <Button size="sm" variant="danger" onClick={() => deleteJob(job.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
@@ -304,71 +305,82 @@ export function JobBoard() {
       )}
 
       {/* Admin Modal */}
-      {isAdmin && isModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-          <Card className="w-full max-w-lg bg-white shadow-xl relative z-10 border border-slate-200 my-8 p-6">
-            <div className="flex justify-between items-center mb-5">
+      {effectiveIsAdmin && isModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
+          <Card className="w-full max-w-lg max-h-[calc(100dvh-2rem)] sm:max-h-[90vh] flex flex-col bg-white shadow-xl relative z-10 border border-slate-200 p-5 sm:p-6 overflow-hidden m-auto">
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100 shrink-0">
               <h3 className="text-xl font-bold text-[#13415D]">{editingJob ? "Edit Shift" : "Create New Shift"}</h3>
-              <button type="button" onClick={() => setIsModalOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 rounded-full transition-colors"><X className="w-5 h-5"/></button>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-full transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5"/>
+              </button>
             </div>
-            <form onSubmit={saveJob} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-[#13415D] mb-1">Shift Title</label>
-                <Input required value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Snack Bar Setup" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-[#13415D] mb-1">Shift Category</label>
-                <select 
-                  className="flex h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#13415D] focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20"
-                  value={type}
-                  onChange={e => setType(e.target.value as any)}
-                >
-                  <option value="General">General</option>
-                  <option value="Event-Specific">Event-Specific</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-[#13415D] mb-1">Date</label>
-                <Input type="date" required value={date} onChange={e => setDate(e.target.value)} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
+            <form onSubmit={saveJob} className="flex flex-col flex-1 min-h-0">
+              <div className="space-y-4 overflow-y-auto pr-1 sm:pr-2 flex-1 min-h-0">
                 <div>
-                  <label className="block text-xs font-semibold text-[#13415D] mb-1">Start Time</label>
-                  <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
+                  <label className="block text-xs font-semibold text-[#13415D] mb-1">Shift Title</label>
+                  <Input required value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Snack Bar Setup" />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-[#13415D] mb-1">End Time</label>
-                  <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
+                  <label className="block text-xs font-semibold text-[#13415D] mb-1">Shift Category</label>
+                  <div className="relative">
+                    <select 
+                      className="flex h-11 w-full appearance-none rounded-lg border border-slate-300 bg-white pl-3.5 pr-10 py-2 text-sm text-[#13415D] focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20 cursor-pointer"
+                      value={type}
+                      onChange={e => setType(e.target.value as any)}
+                    >
+                      <option value="General">General</option>
+                      <option value="Event-Specific">Event-Specific</option>
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  </div>
                 </div>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-[#13415D] mb-1">Min Spots</label>
-                  <Input type="number" min={1} required value={minPos} onChange={e => setMinPos(Number(e.target.value))} />
+                  <label className="block text-xs font-semibold text-[#13415D] mb-1">Date</label>
+                  <Input type="date" required value={date} onChange={e => setDate(e.target.value)} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-[#13415D] mb-1">Start Time</label>
+                    <Input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#13415D] mb-1">End Time</label>
+                    <Input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-[#13415D] mb-1">Min Spots</label>
+                    <Input type="number" min={1} required value={minPos} onChange={e => setMinPos(Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#13415D] mb-1">Desired</label>
+                    <Input type="number" min={1} required value={desiredPos} onChange={e => setDesiredPos(Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#13415D] mb-1">Max Spots</label>
+                    <Input type="number" min={1} required value={maxPos} onChange={e => setMaxPos(Number(e.target.value))} />
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-[#13415D] mb-1">Desired</label>
-                  <Input type="number" min={1} required value={desiredPos} onChange={e => setDesiredPos(Number(e.target.value))} />
+                  <label className="block text-xs font-semibold text-[#13415D] mb-1">Description</label>
+                  <textarea 
+                    className="flex min-h-[70px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#13415D] focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20"
+                    value={description}
+                    onChange={e => setDescription(e.target.value)} 
+                    placeholder="Details about responsibilities and location..."
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-[#13415D] mb-1">Max Spots</label>
-                  <Input type="number" min={1} required value={maxPos} onChange={e => setMaxPos(Number(e.target.value))} />
+                  <label className="block text-xs font-semibold text-[#13415D] mb-1">Point of Contact / Lead</label>
+                  <Input value={poc} onChange={e => setPoc(e.target.value)} placeholder="e.g. coach@example.com" />
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-[#13415D] mb-1">Description</label>
-                <textarea 
-                  className="flex min-h-[70px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-[#13415D] focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20"
-                  value={description}
-                  onChange={e => setDescription(e.target.value)} 
-                  placeholder="Details about responsibilities and location..."
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-[#13415D] mb-1">Point of Contact / Lead</label>
-                <Input value={poc} onChange={e => setPoc(e.target.value)} placeholder="e.g. coach@example.com" />
-              </div>
-              <div className="pt-3 flex justify-end gap-2">
+              <div className="pt-3 mt-3 flex justify-end gap-2 shrink-0 border-t border-slate-100">
                 <Button variant="outline" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
                 <Button type="submit" variant="primary">Save Shift</Button>
               </div>

@@ -63,3 +63,19 @@ export interface Registration {
   }
   status: "Pending" | "Complete" | "Incomplete"
 }
+
+export interface ManualHour {
+  id: string
+  familyId: string
+  date: Timestamp
+  startTime?: string
+  endTime?: string
+  hours: number
+  type: "General" | "Event-Specific"
+  description?: string
+}
+
+export interface WorkDescription {
+  id: string
+  text: string
+}

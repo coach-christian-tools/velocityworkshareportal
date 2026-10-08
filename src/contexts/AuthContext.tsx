@@ -11,6 +11,10 @@ interface AuthContextType {
   familyId: string | null
   loading: boolean
   logout: () => Promise<void>
+  clientMode: boolean
+  setClientMode: (mode: boolean) => void
+  previewFamilyId: string | null
+  setPreviewFamilyId: (id: string | null) => void
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -19,6 +23,10 @@ const AuthContext = createContext<AuthContextType>({
   familyId: null,
   loading: true,
   logout: async () => {},
+  clientMode: false,
+  setClientMode: () => {},
+  previewFamilyId: null,
+  setPreviewFamilyId: () => {},
 })
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -26,6 +34,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false)
   const [familyId, setFamilyId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [clientMode, setClientMode] = useState(false)
+  const [previewFamilyId, setPreviewFamilyId] = useState<string | null>(null)
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -33,48 +43,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       if (firebaseUser) {
         try {
+          let isAdminUser = false
           const userEmail = firebaseUser.email?.toLowerCase().trim() || ""
           const isVelocityAdmin = userEmail.endsWith("@velocity-swimming.com")
 
           if (isVelocityAdmin) {
-            setIsAdmin(true)
-            setFamilyId(null)
+            isAdminUser = true
           } else {
-            let explicitAdmin = false
             try {
               const adminDoc = await getDoc(doc(db, "admins", firebaseUser.uid))
               if (adminDoc.exists()) {
-                explicitAdmin = true
+                isAdminUser = true
               }
             } catch {
               // Ignore if admins collection lookup fails
             }
+          }
 
-            if (explicitAdmin) {
-              setIsAdmin(true)
-              setFamilyId(null)
+          setIsAdmin(isAdminUser)
+
+          let foundFamilyId = null
+          const familiesRef = collection(db, "families")
+
+          if (firebaseUser.email) {
+            const q = query(familiesRef, where("authorizedEmails", "array-contains", firebaseUser.email))
+            const snapshot = await getDocs(q)
+            if (!snapshot.empty) {
+              const testAccount = snapshot.docs.find(d => d.data().accountName === "Christian's Test Account")
+              foundFamilyId = testAccount ? testAccount.id : snapshot.docs[0].id
             } else {
-              setIsAdmin(false)
-              if (firebaseUser.email) {
-                const familiesRef = collection(db, "families")
-                const q = query(familiesRef, where("authorizedEmails", "array-contains", firebaseUser.email))
-                const snapshot = await getDocs(q)
-                if (!snapshot.empty) {
-                  setFamilyId(snapshot.docs[0].id)
-                } else {
-                  const qLower = query(familiesRef, where("authorizedEmails", "array-contains", userEmail))
-                  const snapshotLower = await getDocs(qLower)
-                  if (!snapshotLower.empty) {
-                    setFamilyId(snapshotLower.docs[0].id)
-                  } else {
-                    setFamilyId(null)
-                  }
-                }
-              } else {
-                setFamilyId(null)
+              const qLower = query(familiesRef, where("authorizedEmails", "array-contains", userEmail))
+              const snapshotLower = await getDocs(qLower)
+              if (!snapshotLower.empty) {
+                const testAccountLower = snapshotLower.docs.find(d => d.data().accountName === "Christian's Test Account")
+                foundFamilyId = testAccountLower ? testAccountLower.id : snapshotLower.docs[0].id
               }
             }
           }
+
+          // If admin and no family found, use default test account
+          if (isAdminUser && !foundFamilyId) {
+            const testEmail = "christiancutter02@gmail.com"
+            const qTest = query(familiesRef, where("authorizedEmails", "array-contains", testEmail))
+            const testSnapshot = await getDocs(qTest)
+            if (!testSnapshot.empty) {
+              foundFamilyId = testSnapshot.docs[0].id
+            }
+          }
+
+          setFamilyId(foundFamilyId)
         } catch (error) {
           console.error("Error fetching user roles:", error)
           setIsAdmin(false)
@@ -94,8 +111,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signOut(auth)
   }
 
+  const effectiveFamilyId = (clientMode && previewFamilyId) ? previewFamilyId : familyId;
+
   return (
-    <AuthContext.Provider value={{ user, isAdmin, familyId, loading, logout }}>
+    <AuthContext.Provider value={{ user, isAdmin, familyId: effectiveFamilyId, loading, logout, clientMode, setClientMode, previewFamilyId, setPreviewFamilyId }}>
       {children}
     </AuthContext.Provider>
   )

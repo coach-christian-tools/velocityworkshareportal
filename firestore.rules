@@ -7,6 +7,14 @@ service cloud.firestore {
         (request.auth.token.email != null && request.auth.token.email.matches('(?i).*@velocity-swimming\\.com$'))
       );
     }
+    
+    function isFamilyMember(familyId) {
+      return request.auth != null && request.auth.token.email != null &&
+        exists(/databases/$(database)/documents/families/$(familyId)) && (
+          request.auth.token.email in get(/databases/$(database)/documents/families/$(familyId)).data.authorizedEmails ||
+          request.auth.token.email.lower() in get(/databases/$(database)/documents/families/$(familyId)).data.authorizedEmails
+        );
+    }
 
     match /admins/{uid} {
       allow read: if request.auth != null;
@@ -18,19 +26,41 @@ service cloud.firestore {
     }
 
     match /families/{familyId} {
-      allow read: if request.auth != null;
+      // Guests need to fetch family info for the proxy link using get
+      allow get: if true;
+      // Listing families is restricted to admins and the family members themselves
+      allow list: if isAdmin() || (request.auth != null && request.auth.token.email != null && (
+        request.auth.token.email in resource.data.authorizedEmails ||
+        request.auth.token.email.lower() in resource.data.authorizedEmails
+      ));
       allow write: if isAdmin();
     }
 
     match /postings/{postingId} {
-      allow read: if true; // Guests can see jobs
+      // Guests can fetch a specific job for the proxy link
+      allow get: if true;
+      // Logged in users can see the job board
+      allow list: if request.auth != null;
       allow write: if isAdmin();
     }
 
     match /registrations/{registrationId} {
-      allow read: if true; 
-      allow create: if true; // Allow guest signups
-      allow update, delete: if isAdmin() || request.auth != null;
+      allow read: if isAdmin() || isFamilyMember(resource.data.familyId); 
+      // Anyone can create a pending registration (for guest signups)
+      allow create: if isAdmin() || request.resource.data.status == 'Pending';
+      allow update: if isAdmin();
+      // Admins and family members can cancel/delete their registrations
+      allow delete: if isAdmin() || isFamilyMember(resource.data.familyId);
+    }
+
+    match /manual_hours/{hourId} {
+      allow read: if isAdmin() || isFamilyMember(resource.data.familyId);
+      allow write: if isAdmin();
+    }
+
+    match /work_descriptions/{descId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
     }
   }
 }
