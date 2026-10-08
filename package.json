@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "deploy:functions": "npx firebase-tools deploy --only functions",
     "deploy:rules": "npx firebase-tools deploy --only firestore:rules",
-    "deploy": "npx firebase-tools deploy"
+    "deploy": "npm run build && npx firebase-tools deploy",
+    "test": "tsc -p tsconfig.tests.json && node --import ./scripts/register-typescript.mjs --test tests/*.test.ts",
+    "test:emulators": "npm --prefix functions run build && firebase emulators:exec --project demo-velocityworkshare --only firestore,functions,auth \"node --test tests/invitations.emulator.test.mjs\""
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -24,13 +26,16 @@
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
     "autoprefixer": "^10.5.4",
+    "firebase-tools": "^15.30.2",
     "oxlint": "^1.75.0",
+    "playwright": "^1.64.0",
     "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",

@@ -1,9 +1,10 @@
+import { errorCode, errorMessage } from "../../lib/errors"
 import { useState, useEffect, useRef } from "react"
 import { signInWithCustomToken, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword } from "firebase/auth"
 import { httpsCallable } from "firebase/functions"
 import { useNavigate } from "react-router-dom"
 import { auth, functions } from "../../lib/firebase"
-import { useAuth } from "../../contexts/AuthContext"
+import { useAuth } from "../../contexts/auth"
 import { Button } from "../ui/Button"
 import { Input } from "../ui/Input"
 import { Card } from "../ui/Card"
@@ -24,18 +25,18 @@ export function Login() {
   const [countdown, setCountdown] = useState(0)
 
   const otpInputRef = useRef<HTMLInputElement>(null)
-  const { user, isAdmin } = useAuth()
+  const { user, isAdmin, loading: authLoading } = useAuth()
   const navigate = useNavigate()
 
   useEffect(() => {
-    if (user) {
+    if (user && !authLoading) {
       if (isAdmin) {
         navigate("/admin/families")
       } else {
         navigate("/")
       }
     }
-  }, [user, isAdmin, navigate])
+  }, [user, isAdmin, authLoading, navigate])
 
   useEffect(() => {
     if (step === "code" && otpInputRef.current) {
@@ -64,12 +65,12 @@ export function Login() {
       setStep("code")
       setCountdown(60)
       setSuccessMessage(`We sent a 6-digit code to ${email.trim()}`)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("OTP send error:", err)
-      if (err.code === "functions/not-found" || err.code === "not-found") {
+      if (errorCode(err) === "functions/not-found" || errorCode(err) === "not-found") {
         setError("The Cloud Function has not been deployed yet. Please run 'npm run deploy:functions' in your project terminal.")
       } else {
-        setError(err.message || "Failed to send verification code. Please check your email.")
+        setError(errorMessage(err) || "Failed to send verification code. Please check your email.")
       }
     } finally {
       setLoading(false)
@@ -95,9 +96,9 @@ export function Login() {
       } else {
         throw new Error("No session token received. Please try again.")
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("OTP verify error:", err)
-      setError(err.message || "Invalid or expired code. Please try again.")
+      setError(errorMessage(err) || "Invalid or expired code. Please try again.")
     } finally {
       setLoading(false)
     }
@@ -109,8 +110,8 @@ export function Login() {
     setLoading(true)
     try {
       await signInWithEmailAndPassword(auth, email.trim(), password)
-    } catch (err: any) {
-      setError(err.message || "Failed to log in with password.")
+    } catch (err: unknown) {
+      setError(errorMessage(err) || "Failed to log in with password.")
     } finally {
       setLoading(false)
     }
@@ -124,18 +125,18 @@ export function Login() {
       const provider = new GoogleAuthProvider()
       provider.setCustomParameters({ prompt: "select_account" })
       await signInWithPopup(auth, provider)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Google sign in error:", err)
-      if (err.code === "auth/operation-not-allowed" || err.code === "auth/configuration-not-found") {
+      if (errorCode(err) === "auth/operation-not-allowed" || errorCode(err) === "auth/configuration-not-found") {
         setError("Google Sign-In is not enabled yet in your Firebase project. Go to Firebase Console > Authentication > Sign-in method > Enable Google.")
-      } else if (err.code === "auth/unauthorized-domain") {
+      } else if (errorCode(err) === "auth/unauthorized-domain") {
         setError("This domain is not authorized. Add 'localhost' in Firebase Console > Authentication > Settings > Authorized domains.")
-      } else if (err.code === "auth/popup-blocked") {
+      } else if (errorCode(err) === "auth/popup-blocked") {
         setError("Sign-in popup was blocked by your browser. Please allow popups for this site and try again.")
-      } else if (err.code === "auth/popup-closed-by-user") {
+      } else if (errorCode(err) === "auth/popup-closed-by-user") {
         setError("Sign-in window was closed. Please try again.")
       } else {
-        setError(err.message || "Google sign-in could not be completed.")
+        setError(errorMessage(err) || "Google sign-in could not be completed.")
       }
     } finally {
       setGoogleLoading(false)
@@ -220,7 +221,7 @@ export function Login() {
                       <button
                         type="button"
                         onClick={() => { setStep("email"); setOtpCode(""); setError(""); }}
-                        className="text-xs text-primary-600 hover:text-primary-700 font-medium inline-flex items-center gap-1"
+                        className="text-xs text-brand-accent hover:text-brand-accent-hover font-medium inline-flex items-center gap-1"
                       >
                         <ArrowLeft className="w-3 h-3" /> Change email
                       </button>
@@ -261,7 +262,7 @@ export function Login() {
                         type="button"
                         onClick={() => handleSendCode()}
                         disabled={loading}
-                        className="text-xs font-semibold text-primary-600 hover:text-primary-700 transition-colors"
+                        className="text-xs font-semibold text-brand-accent hover:text-brand-accent-hover transition-colors"
                       >
                         Didn't get a code? Resend
                       </button>

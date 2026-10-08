@@ -2,7 +2,7 @@ import velocityDarkLogo from "../../assets/velocity-logo-dark.png"
 import velocityWhiteLogo from "../../assets/velocity-logo-white.png"
 
 interface VSLogoProps {
-  variant?: "full" | "icon" | "stacked" | "white"
+  variant?: "full" | "white"
   size?: "sm" | "md" | "lg"
   className?: string
   showBadge?: boolean

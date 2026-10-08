@@ -1,94 +1,20 @@
-import { useEffect, useState, useMemo } from "react"
-import { collection, query, where, onSnapshot, getDoc, doc } from "firebase/firestore"
-import { db } from "../../lib/firebase"
-import { useAuth } from "../../contexts/AuthContext"
-import type { Registration, Posting, ManualHour } from "../../types"
+import { useFamilyActivity } from "../../hooks/useFamilyActivity"
+import { volunteerLogs } from "../../lib/hours"
+import { useState, useMemo } from "react"
+import { useAuth } from "../../contexts/auth"
 import { Card } from "../ui/Card"
 import { Calendar, Clock, ClipboardList, Filter, Search } from "lucide-react"
 import { format } from "date-fns"
 
 export function VolunteerLogs() {
   const { familyId } = useAuth()
-  const [registrations, setRegistrations] = useState<Registration[]>([])
-  const [postings, setPostings] = useState<Record<string, Posting>>({})
-  const [manualHours, setManualHours] = useState<ManualHour[]>([])
-  const [loading, setLoading] = useState(true)
+  const { registrations, postings, manualHours, loading, error } = useFamilyActivity(familyId)
 
   const [searchQuery, setSearchQuery] = useState("")
   const [typeFilter, setTypeFilter] = useState<"All" | "General" | "Event-Specific">("All")
 
-  useEffect(() => {
-    if (!familyId) {
-      setLoading(false)
-      return
-    }
-
-    const unsubRegs = onSnapshot(query(collection(db, "registrations"), where("familyId", "==", familyId)), async (snapshot) => {
-      const regs = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Registration))
-      setRegistrations(regs)
-      
-      const newPosts: Record<string, Posting> = {}
-      for (const reg of regs) {
-        if (!newPosts[reg.postingId]) {
-          const postSnap = await getDoc(doc(db, "postings", reg.postingId))
-          if (postSnap.exists()) {
-            newPosts[reg.postingId] = { id: postSnap.id, ...postSnap.data() } as Posting
-          }
-        }
-      }
-      setPostings(prev => ({ ...prev, ...newPosts }))
-    })
-
-    const unsubManual = onSnapshot(query(collection(db, "manual_hours"), where("familyId", "==", familyId)), (snapshot) => {
-      setManualHours(snapshot.docs.map(d => ({ id: d.id, ...d.data() } as ManualHour)))
-      setLoading(false)
-    })
-
-    return () => {
-      unsubRegs()
-      unsubManual()
-    }
-  }, [familyId])
-
   const combinedLogs = useMemo(() => {
-    const logs: any[] = []
-
-    for (const m of manualHours) {
-      logs.push({
-        isManual: true,
-        id: m.id,
-        date: m.date.toDate(),
-        title: m.description || "Manual Hour Adjustment",
-        type: m.type,
-        hours: m.hours,
-        status: "Complete",
-        startTime: m.startTime,
-        endTime: m.endTime
-      })
-    }
-
-    for (const reg of registrations) {
-      if (reg.status === "Pending") continue // Only show Complete/Incomplete logs in history
-      const post = postings[reg.postingId]
-      if (post) {
-        let hours = 0
-        if (post.startTime && post.endTime) {
-          hours = (post.endTime.toMillis() - post.startTime.toMillis()) / (1000 * 60 * 60)
-        }
-        logs.push({
-          isManual: false,
-          id: reg.id,
-          date: post.date.toDate(),
-          title: post.title,
-          type: post.type,
-          hours: Math.round(hours * 10) / 10,
-          status: reg.status,
-          assignee: reg.assignee.name
-        })
-      }
-    }
-
-    logs.sort((a, b) => b.date.getTime() - a.date.getTime())
+    const logs = volunteerLogs(registrations, postings, manualHours)
 
     return logs.filter(log => {
       if (typeFilter !== "All" && log.type !== typeFilter) return false
@@ -110,6 +36,8 @@ export function VolunteerLogs() {
       </div>
     )
   }
+
+  if (error) return <p role="alert" className="text-red-600">Unable to load volunteer logs. Please try again.</p>
 
   if (loading) {
     return (
@@ -142,7 +70,7 @@ export function VolunteerLogs() {
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <select
               value={typeFilter}
-              onChange={e => setTypeFilter(e.target.value as any)}
+              onChange={e => setTypeFilter(e.target.value as typeof typeFilter)}
               className="pl-9 pr-8 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#0A856C] focus:ring-1 focus:ring-[#0A856C] appearance-none min-w-[140px]"
             >
               <option value="All">All Types</option>

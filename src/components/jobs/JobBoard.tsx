@@ -1,8 +1,11 @@
+import { createGuestLink, registerForShift } from "../../lib/invitations"
+import { errorMessage } from "../../lib/errors"
+import { preservePostingCredit } from "../../lib/postingCredit"
 import { useEffect, useState } from "react"
-import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc, Timestamp } from "firebase/firestore"
+import { collection, onSnapshot, addDoc, doc, updateDoc, Timestamp } from "firebase/firestore"
 import { db } from "../../lib/firebase"
 import type { Posting } from "../../types"
-import { useAuth } from "../../contexts/AuthContext"
+import { useAuth } from "../../contexts/auth"
 import { Button } from "../ui/Button"
 import { Card } from "../ui/Card"
 import { Input } from "../ui/Input"
@@ -23,6 +26,10 @@ export function JobBoard() {
   const [isDeclareOpen, setIsDeclareOpen] = useState(false)
   const [selectedJob, setSelectedJob] = useState<Posting | null>(null)
   const [assigneeName, setAssigneeName] = useState("")
+  const [signupBusy, setSignupBusy] = useState(false)
+  const [linkBusy, setLinkBusy] = useState(false)
+  const [guestLink, setGuestLink] = useState("")
+  const [actionError, setActionError] = useState("")
 
   const [title, setTitle] = useState("")
   const [type, setType] = useState<"General" | "Event-Specific">("General")
@@ -110,6 +117,7 @@ export function JobBoard() {
 
     try {
       if (editingJob) {
+        await preservePostingCredit(editingJob)
         await updateDoc(doc(db, "postings", editingJob.id), jobData)
       } else {
         await addDoc(collection(db, "postings"), jobData)
@@ -121,43 +129,45 @@ export function JobBoard() {
     }
   }
 
-  const deleteJob = async (id: string) => {
-    if (confirm("Delete this job posting?")) {
-      await deleteDoc(doc(db, "postings", id))
+  const archiveJob = async (id: string) => {
+    if (!confirm("Archive this shift? It will be removed from the job board, and volunteer history will be preserved.")) return
+    try {
+      await updateDoc(doc(db, "postings", id), { archived: true })
+    } catch (error) {
+      console.error(error)
+      alert("Unable to archive this shift. Please try again.")
     }
   }
 
   const handleDeclare = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!selectedJob || !familyId) return
-
+    if (!selectedJob || !familyId || signupBusy) return
+    setSignupBusy(true)
+    setActionError("")
     try {
-      await addDoc(collection(db, "registrations"), {
-        postingId: selectedJob.id,
-        familyId,
-        assignee: {
-          name: assigneeName,
-          isGuest: false
-        },
-        status: "Pending"
-      })
+      await registerForShift({ postingId: selectedJob.id, familyId, name: assigneeName })
       setIsDeclareOpen(false)
       setAssigneeName("")
       alert("Successfully declared for shift!")
     } catch (err) {
       console.error(err)
-      alert("Failed to declare for shift.")
-    }
+      setActionError(errorMessage(err) || "Failed to declare for shift.")
+    } finally { setSignupBusy(false) }
   }
 
-  const generateGuestLink = (jobId: string) => {
-    if (!familyId) return
-    const url = `${window.location.origin}/guest?jobId=${jobId}&familyId=${familyId}`
-    navigator.clipboard.writeText(url)
-    alert("Guest proxy link copied to clipboard!\n\n" + url)
+  const generateGuestLink = async (jobId: string) => {
+    if (!familyId || linkBusy) return
+    setLinkBusy(true)
+    setActionError("")
+    try {
+      const created = await createGuestLink(familyId, jobId)
+      setGuestLink(created.url)
+      try { await navigator.clipboard.writeText(created.url) } catch { /* The link stays visible for manual copying. */ }
+    } catch (cause) { setActionError(errorMessage(cause) || "Unable to create guest invitation.") }
+    finally { setLinkBusy(false) }
   }
 
-  const filteredJobs = jobs.filter(j => filterType === "All" || j.type === filterType)
+  const filteredJobs = jobs.filter(j => !j.archived && (filterType === "All" || j.type === filterType))
 
   return (
     <div className="space-y-6">
@@ -175,6 +185,12 @@ export function JobBoard() {
         )}
       </div>
 
+      {actionError && <p role="alert" className="text-sm text-red-600">{actionError}</p>}
+      {guestLink && <Card className="space-y-2">
+        <label htmlFor="guest-link" className="block text-sm font-semibold">Guest invitation — copy and share with your guest</label>
+        <input id="guest-link" readOnly value={guestLink} onFocus={event => event.target.select()} className="w-full rounded-lg border border-slate-300 p-2 text-sm" />
+        <p className="text-xs text-slate-500">This link is single-use and does not reserve a spot. Anyone holding it can register once.</p>
+      </Card>}
       {/* Filter Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
         {(["All", "General", "Event-Specific"] as const).map((t) => (
@@ -245,12 +261,12 @@ export function JobBoard() {
               </div>
 
               <div className="flex flex-col gap-2 pt-3 border-t border-slate-100 mt-auto">
-                {!effectiveIsAdmin && (
+                {!effectiveIsAdmin && job.status === "Open" && (
                   <div className="grid grid-cols-2 gap-2">
                     <Button size="sm" variant="primary" onClick={() => { setSelectedJob(job); setIsDeclareOpen(true); }}>
                       <UserPlus className="w-3.5 h-3.5 mr-1.5" /> Declare
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => generateGuestLink(job.id)} title="Copy Guest Proxy Link">
+                    <Button size="sm" variant="outline" disabled={linkBusy || !familyId} onClick={() => { void generateGuestLink(job.id) }} title="Copy Guest Proxy Link">
                       <LinkIcon className="w-3.5 h-3.5 mr-1.5" /> Guest Link
                     </Button>
                   </div>
@@ -263,7 +279,7 @@ export function JobBoard() {
                 {effectiveIsAdmin && (
                   <div className="flex gap-2 pt-1">
                     <Button size="sm" variant="outline" className="flex-1" onClick={() => openAdminModal(job)}>Edit</Button>
-                    <Button size="sm" variant="danger" onClick={() => deleteJob(job.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
+                    <Button size="sm" variant="danger" title="Archive shift" aria-label={`Archive ${job.title}`} onClick={() => archiveJob(job.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
                   </div>
                 )}
               </div>
@@ -286,18 +302,19 @@ export function JobBoard() {
               <button onClick={() => setIsDeclareOpen(false)} className="p-1 text-slate-400 hover:text-slate-600 rounded-full transition-colors"><X className="w-5 h-5"/></button>
             </div>
             <form onSubmit={handleDeclare} className="space-y-4">
+              {actionError && <p role="alert" className="text-sm text-red-600">{actionError}</p>}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
                 <p className="text-xs text-slate-500">Selected shift:</p>
                 <p className="text-sm font-bold text-[#13415D]">{selectedJob.title}</p>
                 <p className="text-xs text-slate-600 mt-1">{selectedJob.date.toDate().toLocaleDateString()}</p>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-[#13415D] mb-1">Assignee Full Name</label>
-                <Input required value={assigneeName} onChange={e => setAssigneeName(e.target.value)} placeholder="e.g. John Doe" />
+                <label htmlFor="shift-assignee" className="block text-xs font-semibold text-[#13415D] mb-1">Assignee Full Name</label>
+                <Input id="shift-assignee" required maxLength={161} value={assigneeName} onChange={e => setAssigneeName(e.target.value)} placeholder="e.g. John Doe" />
               </div>
               <div className="pt-2 flex justify-end gap-2">
                 <Button variant="outline" type="button" onClick={() => setIsDeclareOpen(false)}>Cancel</Button>
-                <Button type="submit" variant="primary">Confirm</Button>
+                <Button type="submit" disabled={signupBusy} variant="primary">{signupBusy ? "Registering..." : "Confirm"}</Button>
               </div>
             </form>
           </Card>
@@ -330,7 +347,7 @@ export function JobBoard() {
                     <select 
                       className="flex h-11 w-full appearance-none rounded-lg border border-slate-300 bg-white pl-3.5 pr-10 py-2 text-sm text-[#13415D] focus-visible:outline-none focus-visible:border-[#0A856C] focus-visible:ring-2 focus-visible:ring-[#0A856C]/20 cursor-pointer"
                       value={type}
-                      onChange={e => setType(e.target.value as any)}
+                      onChange={e => setType(e.target.value as Posting["type"])}
                     >
                       <option value="General">General</option>
                       <option value="Event-Specific">Event-Specific</option>

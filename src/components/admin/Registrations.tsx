@@ -1,5 +1,7 @@
+import { cancelShiftRegistration } from "../../lib/invitations"
+import { errorMessage } from "../../lib/errors"
 import { useEffect, useState } from "react"
-import { collection, onSnapshot, doc, updateDoc, deleteDoc } from "firebase/firestore"
+import { collection, onSnapshot, doc, runTransaction } from "firebase/firestore"
 import { db } from "../../lib/firebase"
 import type { Registration, Posting, Family } from "../../types"
 import { Button } from "../ui/Button"
@@ -32,7 +34,7 @@ export function RegistrationsAdmin() {
 
   const handleExport = () => {
     const dataToExport = registrations.map(r => {
-      const post = postings[r.postingId]
+      const post = r.shiftSnapshot || postings[r.postingId]
       const fam = families[r.familyId]
       return {
         ShiftTitle: post ? post.title : "Unknown",
@@ -49,12 +51,30 @@ export function RegistrationsAdmin() {
   }
 
   const updateStatus = async (id: string, status: Registration["status"]) => {
-    await updateDoc(doc(db, "registrations", id), { status })
+    try {
+      await runTransaction(db, async transaction => {
+        const ref = doc(db, "registrations", id)
+        const registration = await transaction.get(ref)
+        if (!registration.exists()) throw new Error("This registration no longer exists.")
+        const data = registration.data()
+        if (status === "Complete" && !data.shiftSnapshot) {
+          const posting = await transaction.get(doc(db, "postings", data.postingId))
+          if (!posting.exists()) throw new Error("Cannot award credit for a missing shift.")
+          transaction.update(ref, { status, shiftSnapshot: { ...posting.data(), id: posting.id } })
+        } else {
+          transaction.update(ref, { status })
+        }
+      })
+    } catch (error) {
+      console.error(error)
+      alert("Unable to update this registration. Please try again.")
+    }
   }
 
   const deleteRegistration = async (id: string) => {
     if (confirm("Delete this registration?")) {
-      await deleteDoc(doc(db, "registrations", id))
+      try { await cancelShiftRegistration({ registrationId: id }) }
+      catch (cause) { alert(errorMessage(cause) || "Unable to delete registration.") }
     }
   }
 
@@ -87,7 +107,7 @@ export function RegistrationsAdmin() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {registrations.map(r => {
-                const post = postings[r.postingId]
+                const post = r.shiftSnapshot || postings[r.postingId]
                 const fam = families[r.familyId]
                 return (
                   <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">

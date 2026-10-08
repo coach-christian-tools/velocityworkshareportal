@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react"
-import { useSearchParams } from "react-router-dom"
-import { doc, getDoc, addDoc, collection } from "firebase/firestore"
-import { db } from "../../lib/firebase"
-import type { Posting, Family } from "../../types"
+import { useLocation } from "react-router-dom"
+import { getGuestInvitation, redeemGuestInvitation } from "../../lib/invitations"
+import type { GuestInvitationDetails } from "../../lib/invitations"
+import { errorMessage } from "../../lib/errors"
 import { Card } from "../ui/Card"
 import { Input } from "../ui/Input"
 import { Button } from "../ui/Button"
@@ -10,13 +10,14 @@ import { VSLogo } from "../ui/VSLogo"
 import { Calendar, Clock, CheckCircle2, AlertTriangle, UserCheck } from "lucide-react"
 
 export function GuestProxy() {
-  const [searchParams] = useSearchParams()
-  const jobId = searchParams.get("jobId")
-  const familyId = searchParams.get("familyId")
-
-  const [job, setJob] = useState<Posting | null>(null)
-  const [family, setFamily] = useState<Family | null>(null)
+  const location = useLocation()
+  const token = new URLSearchParams(location.hash.slice(1)).get("token") || ""
+  const legacyLink = new URLSearchParams(location.search).has("familyId") || new URLSearchParams(location.search).has("jobId")
+  const [details, setDetails] = useState<GuestInvitationDetails | null>(null)
   const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState("")
+  const job = details?.shift
 
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
@@ -24,45 +25,31 @@ export function GuestProxy() {
   const [submitted, setSubmitted] = useState(false)
 
   useEffect(() => {
-    async function fetchData() {
-      if (!jobId || !familyId) {
-        setLoading(false)
-        return
-      }
-      try {
-        const jobSnap = await getDoc(doc(db, "postings", jobId))
-        if (jobSnap.exists()) setJob({ id: jobSnap.id, ...jobSnap.data() } as Posting)
-        
-        const famSnap = await getDoc(doc(db, "families", familyId))
-        if (famSnap.exists()) setFamily({ id: famSnap.id, ...famSnap.data() } as Family)
-      } catch (err) {
-        console.error(err)
-      }
-      setLoading(false)
-    }
-    fetchData()
-  }, [jobId, familyId])
+    let active = true
+    setDetails(null)
+    setSubmitted(false)
+    setError("")
+    setLoading(true)
+    if (!token || legacyLink) { setLoading(false); return }
+    getGuestInvitation({ token }).then(response => {
+      if (active) setDetails(response.data)
+    }).catch(() => {
+      if (active) setDetails(null)
+    }).finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [token, legacyLink])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!job || !family) return
-
+    if (!details || submitting) return
+    setSubmitting(true)
+    setError("")
     try {
-      await addDoc(collection(db, "registrations"), {
-        postingId: job.id,
-        familyId: family.id,
-        assignee: {
-          name: `${firstName} ${lastName}`,
-          isGuest: true,
-          relation
-        },
-        status: "Pending"
-      })
+      await redeemGuestInvitation({ token, firstName, lastName, relation })
       setSubmitted(true)
-    } catch (err) {
-      console.error(err)
-      alert("Failed to sign up.")
-    }
+    } catch (cause) {
+      setError(errorMessage(cause) || "Unable to register. Please try again or ask the family for a new link.")
+    } finally { setSubmitting(false) }
   }
 
   if (loading) {
@@ -73,7 +60,7 @@ export function GuestProxy() {
     )
   }
 
-  if (!job || !family) {
+  if (!job || !details) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <Card className="w-full max-w-md text-center bg-white border border-red-200 p-8">
@@ -81,7 +68,7 @@ export function GuestProxy() {
             <AlertTriangle className="w-6 h-6" />
           </div>
           <h2 className="text-xl font-bold text-[#13415D] mb-2">Invalid or Expired Link</h2>
-          <p className="text-sm text-slate-500">This guest proxy sign-up link is not recognized or the shift is no longer available.</p>
+          <p className="text-sm text-slate-500">This invitation is invalid, expired, revoked, or already used. Older guest links no longer work. Ask the family to generate a new link.</p>
         </Card>
       </div>
     )
@@ -99,7 +86,7 @@ export function GuestProxy() {
             You have successfully registered to cover <strong>{job.title}</strong> as a guest volunteer.
           </p>
           <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs text-slate-500">
-            Credit has been linked to the <strong>{family.authorizedEmails[0]?.split('@')[0]}</strong> family.
+            Credit has been linked to the <strong>{details.familyName}</strong> family.
           </div>
         </Card>
       </div>
@@ -121,7 +108,7 @@ export function GuestProxy() {
             <div className="flex items-center gap-1.5 text-xs font-bold text-[#0A856C] uppercase tracking-wider mb-1">
               <UserCheck className="w-3.5 h-3.5" /> Volunteering On Behalf Of
             </div>
-            <p className="font-extrabold text-[#13415D] text-sm truncate">{family.authorizedEmails.join(", ")}</p>
+            <p className="font-extrabold text-[#13415D] text-sm truncate">{details.familyName}</p>
             
             <div className="my-3 border-t border-slate-200/80" />
             
@@ -129,13 +116,13 @@ export function GuestProxy() {
             <div className="mt-1 space-y-1 text-xs text-slate-600">
               <div className="flex items-center gap-1.5">
                 <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                <span>{job.date.toDate().toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                <span>{new Date(job.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' })}</span>
               </div>
               {(job.startTime || job.endTime) && (
                 <div className="flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-slate-400" />
                   <span>
-                    {job.startTime?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {job.endTime?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    {job.startTime ? new Date(job.startTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', timeZone: 'America/Los_Angeles'}) : ''} - {job.endTime ? new Date(job.endTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', timeZone: 'America/Los_Angeles'}) : ''}
                   </span>
                 </div>
               )}
@@ -143,23 +130,24 @@ export function GuestProxy() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-[#13415D] mb-1">First Name</label>
-                <Input required value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Jane" />
+                <label htmlFor="guest-first-name" className="block text-xs font-semibold text-[#13415D] mb-1">First Name</label>
+                <Input id="guest-first-name" required maxLength={80} value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Jane" />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-[#13415D] mb-1">Last Name</label>
-                <Input required value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Doe" />
+                <label htmlFor="guest-last-name" className="block text-xs font-semibold text-[#13415D] mb-1">Last Name</label>
+                <Input id="guest-last-name" required maxLength={80} value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Doe" />
               </div>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-[#13415D] mb-1">Relation to Family</label>
-              <Input required value={relation} onChange={e => setRelation(e.target.value)} placeholder="e.g. Grandparent, Family Friend, Relative" />
+              <label htmlFor="guest-relation" className="block text-xs font-semibold text-[#13415D] mb-1">Relation to Family</label>
+              <Input id="guest-relation" required maxLength={100} value={relation} onChange={e => setRelation(e.target.value)} placeholder="e.g. Grandparent, Family Friend, Relative" />
             </div>
             <div className="pt-2">
-              <Button type="submit" variant="primary" size="lg" className="w-full">
-                Confirm Guest Registration
+              <Button type="submit" disabled={submitting} variant="primary" size="lg" className="w-full">
+                {submitting ? "Registering..." : "Confirm Guest Registration"}
               </Button>
             </div>
           </form>

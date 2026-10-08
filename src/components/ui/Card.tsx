@@ -1,10 +1,9 @@
 import { forwardRef } from "react"
-import type { HTMLAttributes } from "react"
 import { cn } from "../../lib/utils"
 import { motion } from "framer-motion"
 import type { HTMLMotionProps } from "framer-motion"
 
-type CardProps = HTMLAttributes<HTMLDivElement> & HTMLMotionProps<"div">
+type CardProps = HTMLMotionProps<"div">
 
 export const Card = forwardRef<HTMLDivElement, CardProps>(
   ({ className, ...props }, ref) => (

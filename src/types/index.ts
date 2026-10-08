@@ -40,20 +40,22 @@ export interface Posting {
   type: "General" | "Event-Specific"
   title: string
   date: Timestamp
-  startTime?: Timestamp
-  endTime?: Timestamp
-  description?: string
+  startTime?: Timestamp | null
+  endTime?: Timestamp | null
+  description?: string | null
   positions: {
     min: number
     desired: number
     max: number
   }
   pointOfContact?: string
+  archived?: boolean
   status: "Open" | "Filled" | "Completed"
 }
 
 export interface Registration {
   id: string
+  shiftSnapshot?: Posting
   postingId: string
   familyId: string
   assignee: {
@@ -68,11 +70,11 @@ export interface ManualHour {
   id: string
   familyId: string
   date: Timestamp
-  startTime?: string
-  endTime?: string
+  startTime?: string | null
+  endTime?: string | null
   hours: number
   type: "General" | "Event-Specific"
-  description?: string
+  description?: string | null
 }
 
 export interface WorkDescription {

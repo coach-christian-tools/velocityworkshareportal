@@ -1,3 +1,4 @@
+import { reminderWindow } from "./reminderWindow"
 import { onSchedule } from "firebase-functions/v2/scheduler"
 import { onCall, HttpsError } from "firebase-functions/v2/https"
 import * as admin from "firebase-admin"
@@ -21,35 +22,24 @@ export const sendOtp = onCall({ cors: true }, async (request) => {
   }
 
   const otpDocRef = db.collection("_otp_codes").doc(email)
-  const existingDoc = await otpDocRef.get()
-
-  if (existingDoc.exists) {
-    const data = existingDoc.data()
-    const createdAt = data?.createdAt?.toMillis ? data.createdAt.toMillis() : 0
-    const now = Date.now()
-    // 60-second cooldown
-    if (now - createdAt < 60 * 1000) {
-      const waitSec = Math.ceil((60 * 1000 - (now - createdAt)) / 1000)
-      throw new HttpsError("resource-exhausted", `Please wait ${waitSec} seconds before requesting a new code.`)
-    }
-  }
-
-  // Generate 6-digit numeric OTP
+  const resendApiKey = process.env.RESEND_API_KEY
+  if (!resendApiKey) throw new HttpsError("internal", "Email service is not configured.")
   const code = crypto.randomInt(100000, 1000000).toString()
   const codeHash = crypto.createHash("sha256").update(code).digest("hex")
-
-  await otpDocRef.set({
-    email,
-    codeHash,
-    attempts: 0,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + 10 * 60 * 1000) // 10 minutes
+  await db.runTransaction(async transaction => {
+    const existing = await transaction.get(otpDocRef)
+    const createdAt = existing.data()?.createdAt?.toMillis() || 0
+    const now = Date.now()
+    if (existing.exists && now - createdAt < 60_000) {
+      const seconds = Math.ceil((60_000 - (now - createdAt)) / 1000)
+      throw new HttpsError("resource-exhausted", `Please wait ${seconds} seconds before requesting a new code.`)
+    }
+    transaction.set(otpDocRef, {
+      email, codeHash, attempts: 0,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      expiresAt: admin.firestore.Timestamp.fromMillis(now + 10 * 60_000)
+    })
   })
-
-  const resendApiKey = process.env.RESEND_API_KEY
-  if (!resendApiKey) {
-    throw new HttpsError("internal", "Email service is not configured (missing RESEND_API_KEY).")
-  }
   const resend = new Resend(resendApiKey)
 
   // Send from verified custom domain velocityworkshare.com
@@ -85,10 +75,10 @@ export const sendOtp = onCall({ cors: true }, async (request) => {
     }
 
     return { success: true, message: "Code sent successfully." }
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Error sending OTP email:", err)
     if (err instanceof HttpsError) throw err
-    throw new HttpsError("internal", err.message || "Failed to send verification email.")
+    throw new HttpsError("internal", (err instanceof Error ? err.message : "Failed to send verification email."))
   }
 })
 
@@ -111,51 +101,48 @@ export const verifyOtp = onCall({ cors: true }, async (request) => {
   }
 
   const otpDocRef = db.collection("_otp_codes").doc(email)
-  const otpDoc = await otpDocRef.get()
-
-  if (!otpDoc.exists) {
-    throw new HttpsError("not-found", "No active verification code found for this email. Please request a new code.")
-  }
-
-  const data = otpDoc.data()
-  const expiresAt = data?.expiresAt?.toMillis ? data.expiresAt.toMillis() : 0
-  if (Date.now() > expiresAt) {
-    await otpDocRef.delete()
-    throw new HttpsError("deadline-exceeded", "This verification code has expired. Please request a new one.")
-  }
-
-  const attempts = data?.attempts || 0
-  if (attempts >= 5) {
-    await otpDocRef.delete()
-    throw new HttpsError("permission-denied", "Too many invalid attempts. Please request a new code.")
-  }
-
   const inputHash = crypto.createHash("sha256").update(code).digest("hex")
-  if (inputHash !== data?.codeHash) {
-    await otpDocRef.update({
-      attempts: admin.firestore.FieldValue.increment(1)
-    })
-    const remaining = 5 - (attempts + 1)
-    throw new HttpsError("invalid-argument", `Invalid verification code. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`)
-  }
-
-  // Code is valid - clean up OTP document
-  await otpDocRef.delete()
+  // Return errors from the transaction so expiry cleanup and failed-attempt writes commit.
+  const verificationError = await db.runTransaction(async transaction => {
+    const otpDoc = await transaction.get(otpDocRef)
+    if (!otpDoc.exists) return new HttpsError("not-found", "No active verification code found. Please request a new code.")
+    const data = otpDoc.data()
+    if (Date.now() > (data?.expiresAt?.toMillis() || 0)) {
+      transaction.delete(otpDocRef)
+      return new HttpsError("deadline-exceeded", "This verification code has expired. Please request a new one.")
+    }
+    const attempts = data?.attempts || 0
+    if (attempts >= 5) {
+      transaction.delete(otpDocRef)
+      return new HttpsError("permission-denied", "Too many invalid attempts. Please request a new code.")
+    }
+    if (inputHash !== data?.codeHash) {
+      transaction.update(otpDocRef, { attempts: attempts + 1 })
+      const remaining = 4 - attempts
+      return new HttpsError("invalid-argument", `Invalid verification code. ${remaining} attempts remaining.`)
+    }
+    transaction.delete(otpDocRef)
+    return null
+  })
+  if (verificationError) throw verificationError
 
   // Get or create Firebase Auth user
   let userRecord: admin.auth.UserRecord
   try {
     userRecord = await admin.auth().getUserByEmail(email)
-  } catch (err: any) {
-    if (err.code === "auth/user-not-found") {
+  } catch (err: unknown) {
+    if (err instanceof Error && "code" in err && err.code === "auth/user-not-found") {
       userRecord = await admin.auth().createUser({
         email,
         emailVerified: true
       })
     } else {
-      throw new HttpsError("internal", err.message || "Failed to process user account.")
+      throw new HttpsError("internal", (err instanceof Error ? err.message : "Failed to process user account."))
     }
   }
+
+  // A successful OTP proves ownership, including for pre-existing password accounts.
+  if (!userRecord.emailVerified) await admin.auth().updateUser(userRecord.uid, { emailVerified: true })
 
   // Generate Firebase Custom Token
   const customToken = await admin.auth().createCustomToken(userRecord.uid, {
@@ -169,56 +156,51 @@ export const verifyOtp = onCall({ cors: true }, async (request) => {
   }
 })
 
-export const sendShiftReminders = onSchedule("every day 00:00", async (event) => {
-  const now = new Date()
-  
-  // Looking for jobs starting exactly in 48 hours
-  const targetDate = new Date(now)
-  targetDate.setDate(now.getDate() + 2)
-  
-  const startOfDay = new Date(targetDate)
-  startOfDay.setHours(0, 0, 0, 0)
-  
-  const endOfDay = new Date(targetDate)
-  endOfDay.setHours(23, 59, 59, 999)
-
-  console.log(`Checking for shifts between ${startOfDay} and ${endOfDay}`)
-
-  const postingsRef = db.collection("postings")
-  const snapshot = await postingsRef
-    .where("date", ">=", admin.firestore.Timestamp.fromDate(startOfDay))
-    .where("date", "<=", admin.firestore.Timestamp.fromDate(endOfDay))
+export const sendShiftReminders = onSchedule({
+  schedule: "every day 00:00", timeZone: "America/Los_Angeles", retryCount: 3
+}, async (event) => {
+  const apiKey = process.env.RESEND_API_KEY
+  if (!apiKey) throw new Error("RESEND_API_KEY is required to send shift reminders.")
+  const resend = new Resend(apiKey)
+  const { start, end } = reminderWindow(new Date(event.scheduleTime))
+  const snapshot = await db.collection("postings")
+    .where("date", ">=", admin.firestore.Timestamp.fromDate(start))
+    .where("date", "<", admin.firestore.Timestamp.fromDate(end))
     .get()
 
-  if (snapshot.empty) {
-    console.log("No shifts in 48 hours.")
-    return
-  }
-
-  const jobIds = snapshot.docs.map(d => d.id)
-  console.log(`Found ${jobIds.length} upcoming shifts. Checking registrations...`)
-
-  for (const doc of snapshot.docs) {
-    const job = doc.data()
-    
-    // Find all registrations for this job
-    const regsRef = db.collection("registrations")
-    const regsSnap = await regsRef
-      .where("postingId", "==", doc.id)
-      .where("status", "==", "Pending")
-      .get()
-
-    for (const regDoc of regsSnap.docs) {
-      const reg = regDoc.data()
-      const familyDoc = await db.collection("families").doc(reg.familyId).get()
-      
-      if (familyDoc.exists) {
-        const familyData = familyDoc.data()
-        const emails = familyData?.authorizedEmails || []
-        console.log(`[EMAIL SENT] To: ${emails.join(", ")} | Subject: Reminder: Upcoming Shift for ${job.title} | Assignee: ${reg.assignee.name}`)
+  const families = new Map<string, string[]>()
+  for (const posting of snapshot.docs) {
+    const job = posting.data()
+    if (job.archived || job.status === "Completed") continue
+    const registrations = await db.collection("registrations")
+      .where("postingId", "==", posting.id).get()
+    for (const registration of registrations.docs) {
+      const reg = registration.data()
+      if (reg.status !== "Pending") continue
+      const reminderKey = `${registration.id}-${start.toISOString().slice(0, 10)}`
+      const marker = db.collection("_shift_reminders").doc(reminderKey)
+      if ((await marker.get()).exists) continue
+      if (!families.has(reg.familyId)) {
+        const family = await db.collection("families").doc(reg.familyId).get()
+        const emails: string[] = family.data()?.authorizedEmails || []
+        families.set(reg.familyId, [...new Set(emails.map(email => email.trim().toLowerCase()).filter(Boolean))])
       }
+      const emails = families.get(reg.familyId) || []
+      if (!emails.length) continue
+      const shiftDate = (job.startTime || job.date).toDate().toLocaleString("en-US", {
+        timeZone: "America/Los_Angeles", dateStyle: "full", timeStyle: "short"
+      })
+      const result = await resend.emails.send({
+        from: process.env.RESEND_FROM_EMAIL || "Velocity Workshare <noreply@velocityworkshare.com>",
+        to: emails,
+        subject: `Reminder: Upcoming Shift for ${job.title}`,
+        text: `Hello! ${reg.assignee.name} is signed up for ${job.title} on ${shiftDate} (Pacific time). Please contact your administrator if you need help with this shift.`
+      }, { idempotencyKey: reminderKey })
+      if (result.error) throw new Error(`Reminder delivery failed: ${result.error.message}`)
+      await marker.set({ sentAt: admin.firestore.FieldValue.serverTimestamp(), registrationId: registration.id })
+      console.log(`Reminder delivered for registration ${registration.id}`)
     }
   }
-
-  console.log("Reminders checked.")
 })
+
+export { createGuestInvitation, getGuestInvitation, redeemGuestInvitation, listGuestInvitations, revokeGuestInvitation, registerForShift, cancelShiftRegistration } from "./invitations"

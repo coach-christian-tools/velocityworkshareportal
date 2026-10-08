@@ -1,12 +1,13 @@
 import { initializeApp } from "firebase/app";
-import { 
-  initializeAuth, 
-  browserLocalPersistence, 
-  browserPopupRedirectResolver, 
-  indexedDBLocalPersistence 
+import {
+  initializeAuth,
+  connectAuthEmulator,
+  browserLocalPersistence,
+  browserPopupRedirectResolver,
+  indexedDBLocalPersistence
 } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
-import { getFunctions } from "firebase/functions";
+import { connectFirestoreEmulator, getFirestore } from "firebase/firestore";
+import { connectFunctionsEmulator, getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -25,3 +26,11 @@ export const auth = initializeAuth(app, {
 });
 export const db = getFirestore(app);
 export const functions = getFunctions(app);
+
+// Emulator access is explicit, development-only, and restricted to demo projects.
+if (import.meta.env.DEV && import.meta.env.VITE_USE_FIREBASE_EMULATORS === "true") {
+  if (!firebaseConfig.projectId?.startsWith("demo-")) throw new Error("Emulator mode requires a demo Firebase project.")
+  connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true })
+  connectFirestoreEmulator(db, "127.0.0.1", 8080)
+  connectFunctionsEmulator(functions, "127.0.0.1", 5001)
+}

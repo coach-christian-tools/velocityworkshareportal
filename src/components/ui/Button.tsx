@@ -1,9 +1,9 @@
-import type { ButtonHTMLAttributes } from "react"
 import { forwardRef } from "react"
 import { cn } from "../../lib/utils"
 import { motion } from "framer-motion"
+import type { HTMLMotionProps } from "framer-motion"
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface ButtonProps extends HTMLMotionProps<"button"> {
   variant?: "primary" | "secondary" | "outline" | "ghost" | "danger"
   size?: "sm" | "md" | "lg"
 }
@@ -29,7 +29,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           },
           className
         )}
-        {...(props as any)}
+        {...props}
       />
     )
   }

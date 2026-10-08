@@ -1,3 +1,5 @@
+import { completedHours as calculateCompletedHours, volunteerLogs } from "../../lib/hours"
+import { CHILD_GROUPS, DIVISION_STYLES, normalizeEmails } from "../../lib/families"
 import { useEffect, useState, useRef, useMemo } from "react"
 import { useParams, useNavigate, Link } from "react-router-dom"
 import { doc, onSnapshot, updateDoc, deleteDoc, collection, query, where, addDoc, Timestamp } from "firebase/firestore"
@@ -23,28 +25,13 @@ import {
   ChevronDown
 } from "lucide-react"
 
-const CHILD_GROUPS: ChildGroup[] = [
-  "No Assignment",
-  "Splash",
-  "Pre-Team",
-  "Prep",
-  "Age Groupers",
-  "Juniors",
-  "Seniors",
-  "Masters",
-  "Rec Team",
-  "Coaches",
-  "Board Members"
-]
-
-const DIVISION_STYLES: Record<string, string> = {
-  Competitive: "bg-blue-50 text-blue-700 border-blue-200/60",
-  Masters: "bg-purple-50 text-purple-700 border-purple-200/60",
-  Development: "bg-emerald-50 text-emerald-700 border-emerald-200/60",
-  Recreation: "bg-slate-100 text-slate-700 border-slate-200/60"
-}
 
 export function FamilyDetailAdmin() {
+  const { familyId } = useParams<{ familyId: string }>()
+  return <FamilyDetailContent key={familyId} />
+}
+
+function FamilyDetailContent() {
   const { familyId } = useParams<{ familyId: string }>()
   const navigate = useNavigate()
 
@@ -141,36 +128,10 @@ export function FamilyDetailAdmin() {
   }, [familyId])
 
   // Completed hours calculation
-  const completedHours = useMemo(() => {
-    let general = 0
-    let event = 0
-    // Registration hours
-    for (const reg of registrations) {
-      if (reg.status === "Complete") {
-        const post = postings[reg.postingId]
-        if (post) {
-          let hours = 1
-          if (post.startTime && post.endTime) {
-            hours = (post.endTime.toMillis() - post.startTime.toMillis()) / (1000 * 60 * 60)
-          }
-          if (post.type === "General") {
-            general += hours
-          } else {
-            event += hours
-          }
-        }
-      }
-    }
-    // Manual hours
-    for (const m of manualHours) {
-      if (m.type === "General") {
-        general += m.hours
-      } else {
-        event += m.hours
-      }
-    }
-    return { general, event }
-  }, [registrations, postings, manualHours])
+  const completedHours = useMemo(
+    () => calculateCompletedHours(registrations, postings, manualHours),
+    [registrations, postings, manualHours]
+  )
 
   const hasChanges = useMemo(() => {
     if (!family) return false
@@ -264,7 +225,7 @@ export function FamilyDetailAdmin() {
       return
     }
 
-    const authorizedEmails = emails.split(",").map(e => e.trim()).filter(Boolean)
+    const authorizedEmails = normalizeEmails(emails)
     const validChildren = children.map(c => ({
       name: c.name.trim(),
       group: c.group
@@ -297,6 +258,10 @@ export function FamilyDetailAdmin() {
 
   const handleDelete = async () => {
     if (!familyId) return
+    if (registrations.length || manualHours.length) {
+      alert("This family has volunteer history and cannot be deleted. Keep the account to preserve its records.")
+      return
+    }
     if (confirm("Are you sure you want to permanently delete this family? This cannot be undone.")) {
       try {
         await deleteDoc(doc(db, "families", familyId))
@@ -310,46 +275,7 @@ export function FamilyDetailAdmin() {
 
   // Combined Logs Logic
   const combinedLogs = useMemo(() => {
-    const logs: any[] = []
-
-    // Add manual hours
-    for (const m of manualHours) {
-      logs.push({
-        isManual: true,
-        id: m.id,
-        date: m.date.toDate(),
-        title: m.description || "Manual Hour Adjustment",
-        type: m.type,
-        hours: m.hours,
-        status: "Complete",
-        startTime: m.startTime,
-        endTime: m.endTime
-      })
-    }
-
-    // Add registration shifts
-    for (const reg of registrations) {
-      const post = postings[reg.postingId]
-      if (post) {
-        let hours = 0
-        if (post.startTime && post.endTime) {
-          hours = (post.endTime.toMillis() - post.startTime.toMillis()) / (1000 * 60 * 60)
-        }
-        logs.push({
-          isManual: false,
-          id: reg.id,
-          date: post.date.toDate(),
-          title: post.title,
-          type: post.type,
-          hours: Math.round(hours * 10) / 10,
-          status: reg.status,
-          assignee: reg.assignee.name
-        })
-      }
-    }
-
-    // Sort newest first
-    logs.sort((a, b) => b.date.getTime() - a.date.getTime())
+    const logs = volunteerLogs(registrations, postings, manualHours, true)
 
     // Filter
     return logs.filter(log => {
@@ -873,7 +799,7 @@ export function FamilyDetailAdmin() {
               <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
               <select
                 value={typeFilter}
-                onChange={e => setTypeFilter(e.target.value as any)}
+                onChange={e => setTypeFilter(e.target.value as typeof typeFilter)}
                 className="pl-9 pr-9 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-[#0A856C] focus:ring-1 focus:ring-[#0A856C] appearance-none cursor-pointer"
               >
                 <option value="All">All Types</option>

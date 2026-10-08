@@ -1,33 +1,10 @@
-import { createContext, useContext, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import type { ReactNode } from "react"
 import type { User } from "firebase/auth"
 import { onAuthStateChanged, signOut } from "firebase/auth"
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore"
+import { AuthContext } from "./auth"
 import { auth, db } from "../lib/firebase"
-
-interface AuthContextType {
-  user: User | null
-  isAdmin: boolean
-  familyId: string | null
-  loading: boolean
-  logout: () => Promise<void>
-  clientMode: boolean
-  setClientMode: (mode: boolean) => void
-  previewFamilyId: string | null
-  setPreviewFamilyId: (id: string | null) => void
-}
-
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  isAdmin: false,
-  familyId: null,
-  loading: true,
-  logout: async () => {},
-  clientMode: false,
-  setClientMode: () => {},
-  previewFamilyId: null,
-  setPreviewFamilyId: () => {},
-})
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -38,14 +15,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [previewFamilyId, setPreviewFamilyId] = useState<string | null>(null)
 
   useEffect(() => {
+    let generation = 0
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      const currentGeneration = ++generation
+      setLoading(true)
+      setIsAdmin(false)
+      setFamilyId(null)
+      setClientMode(false)
+      setPreviewFamilyId(null)
       setUser(firebaseUser)
-      
+
       if (firebaseUser) {
         try {
           let isAdminUser = false
           const userEmail = firebaseUser.email?.toLowerCase().trim() || ""
-          const isVelocityAdmin = userEmail.endsWith("@velocity-swimming.com")
+          const isVelocityAdmin = firebaseUser.emailVerified && userEmail.endsWith("@velocity-swimming.com")
 
           if (isVelocityAdmin) {
             isAdminUser = true
@@ -60,39 +44,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           }
 
-          setIsAdmin(isAdminUser)
-
           let foundFamilyId = null
           const familiesRef = collection(db, "families")
 
-          if (firebaseUser.email) {
+          if (firebaseUser.email && firebaseUser.emailVerified) {
             const q = query(familiesRef, where("authorizedEmails", "array-contains", firebaseUser.email))
             const snapshot = await getDocs(q)
             if (!snapshot.empty) {
-              const testAccount = snapshot.docs.find(d => d.data().accountName === "Christian's Test Account")
-              foundFamilyId = testAccount ? testAccount.id : snapshot.docs[0].id
+              foundFamilyId = snapshot.docs[0].id
             } else {
               const qLower = query(familiesRef, where("authorizedEmails", "array-contains", userEmail))
               const snapshotLower = await getDocs(qLower)
               if (!snapshotLower.empty) {
-                const testAccountLower = snapshotLower.docs.find(d => d.data().accountName === "Christian's Test Account")
-                foundFamilyId = testAccountLower ? testAccountLower.id : snapshotLower.docs[0].id
+                foundFamilyId = snapshotLower.docs[0].id
               }
             }
           }
 
-          // If admin and no family found, use default test account
-          if (isAdminUser && !foundFamilyId) {
-            const testEmail = "christiancutter02@gmail.com"
-            const qTest = query(familiesRef, where("authorizedEmails", "array-contains", testEmail))
-            const testSnapshot = await getDocs(qTest)
-            if (!testSnapshot.empty) {
-              foundFamilyId = testSnapshot.docs[0].id
-            }
-          }
-
+          if (currentGeneration !== generation) return
+          setIsAdmin(isAdminUser)
           setFamilyId(foundFamilyId)
         } catch (error) {
+          if (currentGeneration !== generation) return
           console.error("Error fetching user roles:", error)
           setIsAdmin(false)
           setFamilyId(null)
@@ -101,10 +74,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setIsAdmin(false)
         setFamilyId(null)
       }
-      setLoading(false)
+      if (currentGeneration === generation) setLoading(false)
     })
 
-    return () => unsubscribe()
+    return () => { generation++; unsubscribe() }
   }, [])
 
   const logout = async () => {
@@ -119,5 +92,3 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     </AuthContext.Provider>
   )
 }
-
-export const useAuth = () => useContext(AuthContext)

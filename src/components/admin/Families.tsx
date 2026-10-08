@@ -1,6 +1,8 @@
+import { postingHours } from "../../lib/hours"
+import { CHILD_GROUPS, DIVISION_STYLES, normalizeEmails } from "../../lib/families"
 import { useEffect, useState, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
-import { collection, onSnapshot, addDoc, doc, updateDoc, deleteDoc } from "firebase/firestore"
+import { collection, onSnapshot, addDoc } from "firebase/firestore"
 import { db } from "../../lib/firebase"
 import type { Family, Child, ChildGroup, Registration, Posting, ManualHour } from "../../types"
 import { Button } from "../ui/Button"
@@ -12,26 +14,6 @@ import { Download, Plus, Trash2, X, Search, ArrowUpDown, ArrowUp, ArrowDown, Che
 type SortField = "account" | "general" | "event"
 type SortOrder = "asc" | "desc"
 
-const CHILD_GROUPS: ChildGroup[] = [
-  "No Assignment",
-  "Splash",
-  "Pre-Team",
-  "Prep",
-  "Age Groupers",
-  "Juniors",
-  "Seniors",
-  "Masters",
-  "Rec Team",
-  "Coaches",
-  "Board Members"
-]
-
-const DIVISION_STYLES: Record<string, string> = {
-  Competitive: "bg-blue-50 text-blue-700 border-blue-200/60",
-  Masters: "bg-purple-50 text-purple-700 border-purple-200/60",
-  Development: "bg-emerald-50 text-emerald-700 border-emerald-200/60",
-  Recreation: "bg-slate-100 text-slate-700 border-slate-200/60"
-}
 
 function formatAccountName(name?: string): string {
   if (!name) return ""
@@ -56,7 +38,6 @@ export function FamiliesAdmin() {
   const [postings, setPostings] = useState<Record<string, Posting>>({})
   const [manualHours, setManualHours] = useState<ManualHour[]>([])
   const [isModalOpen, setIsModalOpen] = useState(false)
-  const [editingFamily, setEditingFamily] = useState<Family | null>(null)
 
   // Search & Filter state
   const [searchTerm, setSearchTerm] = useState("")
@@ -114,12 +95,9 @@ export function FamiliesAdmin() {
 
     for (const reg of registrations) {
       if (reg.status === "Complete" && reg.familyId) {
-        const post = postings[reg.postingId]
+        const post = reg.shiftSnapshot || postings[reg.postingId]
         if (post) {
-          let hours = 1
-          if (post.startTime && post.endTime) {
-            hours = (post.endTime.toMillis() - post.startTime.toMillis()) / (1000 * 60 * 60)
-          }
+          const hours = postingHours(post)
           if (!map[reg.familyId]) {
             map[reg.familyId] = { general: 0, event: 0 }
           }
@@ -203,24 +181,13 @@ export function FamiliesAdmin() {
     downloadCSV(dataToExport, "families_export.csv")
   }
 
-  const openModal = (family?: Family) => {
-    if (family) {
-      setEditingFamily(family)
-      setAccountName(family.accountName || "")
-      setCategory(family.category || "Recreation")
-      setEmails(family.authorizedEmails?.join(", ") || "")
-      setChildren(family.children ? [...family.children] : [])
-      setGeneralHours(String(family.requirements?.generalPoolHours ?? 0))
-      setEventHours(String(family.requirements?.eventSpecificHours ?? 0))
-    } else {
-      setEditingFamily(null)
-      setAccountName("")
-      setCategory("Recreation")
-      setEmails("")
-      setChildren([])
-      setGeneralHours("0")
-      setEventHours("0")
-    }
+  const openModal = () => {
+    setAccountName("")
+    setCategory("Recreation")
+    setEmails("")
+    setChildren([])
+    setGeneralHours("0")
+    setEventHours("0")
     setIsModalOpen(true)
   }
 
@@ -259,7 +226,7 @@ export function FamiliesAdmin() {
       return
     }
 
-    const authorizedEmails = emails.split(",").map(e => e.trim()).filter(e => e)
+    const authorizedEmails = normalizeEmails(emails)
     const validChildren = children.map(c => ({
       name: c.name.trim(),
       group: c.group
@@ -274,26 +241,15 @@ export function FamiliesAdmin() {
         generalPoolHours: genHoursNum,
         eventSpecificHours: eventHoursNum
       },
-      members: editingFamily?.members || []
+      members: []
     }
 
     try {
-      if (editingFamily) {
-        await updateDoc(doc(db, "families", editingFamily.id), familyData)
-      } else {
-        await addDoc(collection(db, "families"), familyData)
-      }
+      await addDoc(collection(db, "families"), familyData)
       setIsModalOpen(false)
     } catch (err) {
       console.error(err)
       alert("Error saving family data. Check console.")
-    }
-  }
-
-  const deleteFamily = async (id: string) => {
-    if (confirm("Are you sure you want to delete this family?")) {
-      await deleteDoc(doc(db, "families", id))
-      setIsModalOpen(false)
     }
   }
 
@@ -502,7 +458,7 @@ export function FamiliesAdmin() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
           <Card className="w-full max-w-xl max-h-[90vh] flex flex-col bg-white shadow-xl relative z-10 border border-slate-200 p-6 overflow-hidden">
             <div className="flex justify-between items-center mb-5 pb-2 border-b border-slate-100 shrink-0">
-              <h3 className="text-xl font-bold text-[#13415D]">{editingFamily ? "Edit Family" : "Add New Family"}</h3>
+              <h3 className="text-xl font-bold text-[#13415D]">Add New Family</h3>
               <button
                 onClick={() => setIsModalOpen(false)}
                 className="p-1 text-slate-400 hover:text-slate-600 rounded-full transition-colors cursor-pointer"
@@ -641,19 +597,7 @@ export function FamiliesAdmin() {
               </div>
 
               <div className="pt-4 flex items-center justify-between border-t border-slate-100 shrink-0">
-                {editingFamily ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => deleteFamily(editingFamily.id)}
-                    className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
-                  >
-                    <Trash2 className="w-4 h-4 mr-1.5" />
-                    Delete Family
-                  </Button>
-                ) : (
-                  <div />
-                )}
+                <div />
                 <div className="flex items-center gap-2">
                   <Button variant="outline" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
                   <Button type="submit" variant="primary">Save Family</Button>

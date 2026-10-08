@@ -1,7 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react"
 import { Link, useLocation, useNavigate } from "react-router-dom"
 import { LogOut, Home, Briefcase, Users, Settings, ClipboardList, Shield, Eye, EyeOff, PanelLeftClose, PanelLeftOpen } from "lucide-react"
-import { useAuth } from "../../contexts/AuthContext"
+import { useAuth } from "../../contexts/auth"
 import { VSLogo } from "../ui/VSLogo"
 
 const DEFAULT_SIDEBAR_WIDTH = 256
@@ -23,7 +23,7 @@ export function MainLayout({ children, isAdmin = false }: { children: ReactNode,
       setPreviewFamilyId(null)
       navigate('/admin/families')
     } else {
-      const match = location.pathname.match(/\/admin\/families\/([^\/]+)/)
+      const match = location.pathname.match(/\/admin\/families\/([^/]+)/)
       if (match) {
         setPreviewFamilyId(match[1])
       } else {

@@ -1,95 +1,48 @@
+import { cancelShiftRegistration } from "../../lib/invitations"
+import { GuestInvitations } from "./GuestInvitations"
+import { errorMessage } from "../../lib/errors"
+import { DIVISION_STYLES } from "../../lib/families"
+import { completedHours } from "../../lib/hours"
+import { useFamilyActivity } from "../../hooks/useFamilyActivity"
 import { useEffect, useState } from "react"
-import { collection, query, where, onSnapshot, doc, getDoc, deleteDoc } from "firebase/firestore"
+import { onSnapshot, doc } from "firebase/firestore"
 import { db } from "../../lib/firebase"
-import { useAuth } from "../../contexts/AuthContext"
-import type { Family, Registration, Posting, ChildGroup } from "../../types"
+import { useAuth } from "../../contexts/auth"
+import type { Family, ChildGroup } from "../../types"
 import { Card } from "../ui/Card"
 import { Calendar, Clock, User, Award, CheckCircle2, Users, Mail, HelpCircle } from "lucide-react"
-
-const DIVISION_STYLES: Record<string, string> = {
-  Competitive: "bg-blue-50 text-blue-700 border-blue-200/60",
-  Masters: "bg-purple-50 text-purple-700 border-purple-200/60",
-  Development: "bg-emerald-50 text-emerald-700 border-emerald-200/60",
-  Recreation: "bg-slate-100 text-slate-700 border-slate-200/60"
-}
 
 export function FamilyDashboard() {
   const { familyId, isAdmin, clientMode } = useAuth()
   const effectiveIsAdmin = isAdmin && !clientMode
   const [family, setFamily] = useState<Family | null>(null)
-  const [upcomingRegs, setUpcomingRegs] = useState<(Registration & { job: Posting })[]>([])
-  const [regHours, setRegHours] = useState({ general: 0, event: 0 })
-  const [manualHours, setManualHours] = useState({ general: 0, event: 0 })
+  const [loadedFamilyId, setLoadedFamilyId] = useState<string | null>(null)
+  const [familyError, setFamilyError] = useState(false)
+  const { registrations, postings, manualHours, error } = useFamilyActivity(familyId)
 
   useEffect(() => {
     if (!familyId) return
-
-    const unsubFam = onSnapshot(doc(db, "families", familyId), (docSnap) => {
-      if (docSnap.exists()) {
-        setFamily({ id: docSnap.id, ...docSnap.data() } as Family)
-      }
-    })
-
-    const unsubRegs = onSnapshot(query(collection(db, "registrations"), where("familyId", "==", familyId)), async (snapshot) => {
-      const upcoming = []
-      let gen = 0
-      let ev = 0
-      
-      for (const regDoc of snapshot.docs) {
-        const reg = { id: regDoc.id, ...regDoc.data() } as Registration
-        const postSnap = await getDoc(doc(db, "postings", reg.postingId))
-        if (postSnap.exists()) {
-          const post = { id: postSnap.id, ...postSnap.data() } as Posting
-          
-          if (reg.status === "Complete") {
-            let hours = 1
-            if (post.startTime && post.endTime) {
-              hours = (post.endTime.toMillis() - post.startTime.toMillis()) / (1000 * 60 * 60)
-            }
-            if (post.type === "General") gen += hours
-            else ev += hours
-          } else if (reg.status === "Pending") {
-            upcoming.push({ ...reg, job: post })
-          }
-        }
-      }
-      upcoming.sort((a, b) => a.job.date.toMillis() - b.job.date.toMillis())
-      setUpcomingRegs(upcoming)
-      setRegHours({ general: gen, event: ev })
-    })
-
-    const unsubManual = onSnapshot(query(collection(db, "manual_hours"), where("familyId", "==", familyId)), (snapshot) => {
-      let gen = 0
-      let ev = 0
-      for (const docSnap of snapshot.docs) {
-        const data = docSnap.data()
-        if (data.type === "General") gen += data.hours
-        else ev += data.hours
-      }
-      setManualHours({ general: gen, event: ev })
-    })
-
-    return () => { unsubFam(); unsubRegs(); unsubManual() }
+    return onSnapshot(doc(db, "families", familyId), snapshot => {
+      setFamily(snapshot.exists() ? { ...snapshot.data(), id: snapshot.id } as Family : null)
+      setLoadedFamilyId(familyId)
+      setFamilyError(!snapshot.exists())
+    }, () => { setFamilyError(true); setLoadedFamilyId(familyId) })
   }, [familyId])
 
-  const completedGeneral = Math.round((regHours.general + manualHours.general) * 10) / 10
-  const completedEvent = Math.round((regHours.event + manualHours.event) * 10) / 10
+  const totals = completedHours(registrations, postings, manualHours)
+  const completedGeneral = Math.round(totals.general * 10) / 10
+  const completedEvent = Math.round(totals.event * 10) / 10
+  const upcomingRegs = registrations.flatMap(reg => {
+    const job = postings[reg.postingId]
+    return reg.status === "Pending" && job ? [{ ...reg, job }] : []
+  }).sort((a, b) => a.job.date.toMillis() - b.job.date.toMillis())
 
-  const cancelRegistration = async (regId: string, job: Posting) => {
-    const now = new Date()
-    const jobTime = job.startTime ? job.startTime.toDate() : job.date.toDate()
-    const diffHours = (jobTime.getTime() - now.getTime()) / (1000 * 60 * 60)
-    
-    if (diffHours < 24) {
-      alert("Cancellation Lockout: You cannot cancel a shift within 24 hours of its start time. Please contact the administrator directly.")
-      return
-    }
-
+  const cancelRegistration = async (regId: string) => {
     if (confirm("Are you sure you want to cancel this shift?")) {
       try {
-        await deleteDoc(doc(db, "registrations", regId))
+        await cancelShiftRegistration({ registrationId: regId })
       } catch (err) {
-        console.error(err)
+        alert(errorMessage(err) || "Unable to cancel this registration.")
       }
     }
   }
@@ -118,7 +71,9 @@ export function FamilyDashboard() {
     )
   }
 
-  if (!family) {
+  if (error || (loadedFamilyId === familyId && familyError)) return <p role="alert" className="text-red-600">Unable to load family dashboard. Please try again.</p>
+
+  if (!family || loadedFamilyId !== familyId) {
     if (clientMode && !familyId) {
       return (
         <div className="p-12 text-center text-slate-500 font-medium bg-white rounded-2xl border border-dashed border-slate-300">
@@ -149,6 +104,7 @@ export function FamilyDashboard() {
 
   return (
     <div className="space-y-8">
+      <GuestInvitations key={familyId} familyId={familyId!} />
       {/* Page Header */}
       <div>
         <h2 className="text-2xl sm:text-3xl font-extrabold text-[#13415D] tracking-tight">
@@ -446,7 +402,7 @@ export function FamilyDashboard() {
 
                 <div className="pt-3 border-t border-slate-100 mt-auto flex justify-between items-center">
                   <button 
-                    onClick={() => cancelRegistration(reg.id, reg.job)} 
+                    onClick={() => cancelRegistration(reg.id)}
                     className="text-xs text-red-600 hover:text-red-800 font-semibold py-1.5 px-2 -ml-2 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
                   >
                     Cancel Shift
